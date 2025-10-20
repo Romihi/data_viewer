@@ -133,6 +133,60 @@
         .file-item.data-folder:hover {
             background-color: #fcd34d;
         }
+        .smoothing-tooltip-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+        .smoothing-tooltip {
+            visibility: hidden;
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            margin-bottom: 8px;
+            width: 400px;
+            background-color: #1f2937;
+            color: white;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            line-height: 1.4;
+            z-index: 1000;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            opacity: 0;
+            transition: opacity 0.2s, visibility 0.2s;
+        }
+        .smoothing-tooltip-wrapper:hover .smoothing-tooltip {
+            visibility: visible;
+            opacity: 1;
+        }
+        .smoothing-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 20px;
+            border: 6px solid transparent;
+            border-top-color: #1f2937;
+        }
+        .smoothing-tooltip h4 {
+            font-weight: 600;
+            margin: 0 0 6px 0;
+            font-size: 12px;
+            color: #fbbf24;
+        }
+        .smoothing-tooltip ul {
+            margin: 4px 0;
+            padding-left: 16px;
+        }
+        .smoothing-tooltip li {
+            margin: 2px 0;
+        }
+        .smoothing-tooltip code {
+            background-color: rgba(255, 255, 255, 0.1);
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+        }
         .range-controls {
             display: flex;
             gap: 0.5rem;
@@ -356,6 +410,7 @@
             const [preloadedImages, setPreloadedImages] = useState(new Map());
             const [normalizeData, setNormalizeData] = useState(false);
             const [visibleImageKeys, setVisibleImageKeys] = useState({});
+            const [smoothingOption, setSmoothingOption] = useState('none');
             const chartRef = useRef(null);
             const chartInstance = useRef(null);
             const chartUpdatePending = useRef(false);
@@ -448,7 +503,7 @@
                     const response = await fetch(`${API_BASE}/api/statistics`);
                     const stats = await response.json();
                     setStatistics(stats);
-                    
+
                     // Initialize visible keys - default to user/angle and user/throttle
                     const initialVisible = {};
                     Object.keys(stats).forEach(key => {
@@ -458,6 +513,37 @@
                 } catch (error) {
                     console.error('Error loading statistics:', error);
                 }
+            };
+
+            // Smoothing functions
+            const applySmoothing = (data, option) => {
+                if (option === 'none' || data.length === 0) return data;
+
+                // Moving Average
+                if (option.startsWith('ma-')) {
+                    const windowSize = parseInt(option.split('-')[1]);
+                    const smoothed = [];
+                    for (let i = 0; i < data.length; i++) {
+                        const start = Math.max(0, i - Math.floor(windowSize / 2));
+                        const end = Math.min(data.length, i + Math.ceil(windowSize / 2));
+                        const window = data.slice(start, end);
+                        const sum = window.reduce((acc, val) => acc + val, 0);
+                        smoothed.push(sum / window.length);
+                    }
+                    return smoothed;
+                }
+
+                // Exponential Moving Average
+                if (option.startsWith('ema-')) {
+                    const alpha = parseFloat(option.split('-')[1]);
+                    const smoothed = [data[0]];
+                    for (let i = 1; i < data.length; i++) {
+                        smoothed.push(alpha * data[i] + (1 - alpha) * smoothed[i - 1]);
+                    }
+                    return smoothed;
+                }
+
+                return data;
             };
 
             const createChart = () => {
@@ -492,6 +578,9 @@
                         } else {
                             processedData = rawData;
                         }
+
+                        // Apply smoothing if enabled
+                        processedData = applySmoothing(processedData, smoothingOption);
 
                         return {
                             label: key,
@@ -786,7 +875,7 @@
             // Create chart when data or visible keys change
             useEffect(() => {
                 createChart();
-            }, [records, visibleKeys, deletedIndexes, zoomRange, normalizeData]);
+            }, [records, visibleKeys, deletedIndexes, zoomRange, normalizeData, smoothingOption]);
 
             // Create histograms when records change
             useEffect(() => {
@@ -1382,6 +1471,25 @@
                                                 >
                                                     正規化 {normalizeData ? 'ON' : 'OFF'}
                                                 </button>
+                                                <select
+                                                    value={smoothingOption}
+                                                    onChange={(e) => setSmoothingOption(e.target.value)}
+                                                    className="px-2 py-1 border rounded text-xs"
+                                                    title="Apply smoothing to data"
+                                                >
+                                                    <option value="none">平滑化なし</option>
+                                                    <optgroup label="移動平均">
+                                                        <option value="ma-3">移動平均 (窓=3)</option>
+                                                        <option value="ma-5">移動平均 (窓=5)</option>
+                                                        <option value="ma-10">移動平均 (窓=10)</option>
+                                                        <option value="ma-20">移動平均 (窓=20)</option>
+                                                    </optgroup>
+                                                    <optgroup label="指数移動平均">
+                                                        <option value="ema-0.1">指数平滑化 (α=0.1)</option>
+                                                        <option value="ema-0.3">指数平滑化 (α=0.3)</option>
+                                                        <option value="ema-0.5">指数平滑化 (α=0.5)</option>
+                                                    </optgroup>
+                                                </select>
                                                 <span className="text-xs text-gray-600">
                                                     {zoomRange.min} - {zoomRange.max !== null ? zoomRange.max : records.length - 1}
                                                 </span>
