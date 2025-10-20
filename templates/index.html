@@ -353,6 +353,13 @@
             const [isResizing, setIsResizing] = useState(false);
             const panelRef = useRef(null);
 
+            // Update size when initialSize prop changes (for restoring saved state)
+            useEffect(() => {
+                if (initialSize && initialSize !== size) {
+                    setSize(initialSize);
+                }
+            }, [initialSize]);
+
             const handleMouseDown = useCallback((e) => {
                 setIsResizing(true);
                 e.preventDefault();
@@ -457,10 +464,92 @@
                 preloadedImagesRef.current = preloadedImages;
             }, [preloadedImages]);
 
-            // Load folders on mount
+            // LocalStorage helpers
+            const STORAGE_KEY = 'donkeycar_viewer_state';
+
+            const saveState = (state) => {
+                try {
+                    const currentState = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+                    const newState = { ...currentState, ...state };
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
+                } catch (error) {
+                    console.error('Error saving state:', error);
+                }
+            };
+
+            const loadState = () => {
+                try {
+                    const state = localStorage.getItem(STORAGE_KEY);
+                    return state ? JSON.parse(state) : {};
+                } catch (error) {
+                    console.error('Error loading state:', error);
+                    return {};
+                }
+            };
+
+            // Load folders and saved state on mount
             useEffect(() => {
                 loadFolders();
+
+                // Load saved state
+                const savedState = loadState();
+
+                // Restore panel sizes
+                if (savedState.imagesPanelWidth) {
+                    setImagesPanelWidth(savedState.imagesPanelWidth);
+                }
+                if (savedState.timelineHeight) {
+                    setTimelineHeight(savedState.timelineHeight);
+                }
+
+                // Auto-load last folder if available
+                if (savedState.selectedFolder) {
+                    setTimeout(() => {
+                        loadData(savedState.selectedFolder);
+                    }, 100);
+                }
             }, []);
+
+            // Save panel sizes when they change
+            useEffect(() => {
+                if (imagesPanelWidth > 0) {
+                    saveState({ imagesPanelWidth });
+                }
+            }, [imagesPanelWidth]);
+
+            useEffect(() => {
+                if (timelineHeight > 0) {
+                    saveState({ timelineHeight });
+                }
+            }, [timelineHeight]);
+
+            // Save selected folder when it changes
+            useEffect(() => {
+                if (selectedFolder) {
+                    saveState({ selectedFolder });
+                }
+            }, [selectedFolder]);
+
+            // Save selected data keys when they change
+            useEffect(() => {
+                if (selectedKeys.length > 0) {
+                    saveState({ selectedDataKey: selectedKeys[0] });
+                }
+            }, [selectedKeys]);
+
+            // Save visible keys (Timeline data selection) when they change
+            useEffect(() => {
+                if (Object.keys(visibleKeys).length > 0) {
+                    saveState({ visibleKeys });
+                }
+            }, [visibleKeys]);
+
+            // Save visible image keys when they change
+            useEffect(() => {
+                if (Object.keys(visibleImageKeys).length > 0) {
+                    saveState({ visibleImageKeys });
+                }
+            }, [visibleImageKeys]);
 
             // [Removed old auto-play code - replaced with new playback control below]
 
@@ -516,13 +605,23 @@
                     const records = data.records || [];
                     setRecords(records);
 
-                    // Initialize visible image keys - default to all visible
+                    // Initialize visible image keys - restore saved state or default to all visible
                     if (records.length > 0) {
                         const firstRecord = records[0];
                         const imageKeys = Object.keys(firstRecord).filter(key => key.endsWith('/image_array'));
+
+                        // Try to restore saved image visibility
+                        const savedState = loadState();
+                        const savedVisibleImageKeys = savedState.visibleImageKeys;
+
                         const initialImageVisible = {};
                         imageKeys.forEach(key => {
-                            initialImageVisible[key] = true;
+                            // If saved state exists and has this key, use saved value; otherwise default to true
+                            if (savedVisibleImageKeys && key in savedVisibleImageKeys) {
+                                initialImageVisible[key] = savedVisibleImageKeys[key];
+                            } else {
+                                initialImageVisible[key] = true;
+                            }
                         });
                         setVisibleImageKeys(initialImageVisible);
 
@@ -541,12 +640,30 @@
                     const stats = await response.json();
                     setStatistics(stats);
 
-                    // Initialize visible keys - default to user/angle and user/throttle
-                    const initialVisible = {};
-                    Object.keys(stats).forEach(key => {
-                        initialVisible[key] = key === 'user/angle' || key === 'user/throttle';
-                    });
-                    setVisibleKeys(initialVisible);
+                    // Restore saved state
+                    const savedState = loadState();
+
+                    // Restore visible keys (Timeline data selection) or use defaults
+                    if (savedState.visibleKeys) {
+                        const restoredVisible = {};
+                        Object.keys(stats).forEach(key => {
+                            // If saved state has this key, use saved value; otherwise default to false
+                            restoredVisible[key] = savedState.visibleKeys[key] || false;
+                        });
+                        setVisibleKeys(restoredVisible);
+                    } else {
+                        // Initialize visible keys - default to user/angle and user/throttle
+                        const initialVisible = {};
+                        Object.keys(stats).forEach(key => {
+                            initialVisible[key] = key === 'user/angle' || key === 'user/throttle';
+                        });
+                        setVisibleKeys(initialVisible);
+                    }
+
+                    // Restore saved data key selection for timeline
+                    if (savedState.selectedDataKey && Object.keys(stats).includes(savedState.selectedDataKey)) {
+                        setSelectedKeys([savedState.selectedDataKey]);
+                    }
                 } catch (error) {
                     console.error('Error loading statistics:', error);
                 }
@@ -1502,7 +1619,7 @@
                                     {/* Images Panel */}
                                     <ResizablePanel
                                         direction="horizontal"
-                                        initialSize={400}
+                                        initialSize={imagesPanelWidth}
                                         minSize={200}
                                         maxSize={800}
                                         onResize={setImagesPanelWidth}
@@ -1587,7 +1704,7 @@
                                         {/* Timeline Chart */}
                                         <ResizablePanel
                                             direction="vertical"
-                                            initialSize={400}
+                                            initialSize={timelineHeight}
                                             minSize={250}
                                             onResize={setTimelineHeight}
                                         >
