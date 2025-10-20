@@ -90,6 +90,7 @@
             position: relative;
             overflow: visible;
             padding-bottom: 8px;
+            z-index: 1;
         }
         .image-grid {
             display: grid;
@@ -292,8 +293,8 @@
             };
 
             return (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-panel rounded-lg shadow-xl w-96 max-w-full max-h-full overflow-hidden">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center" style={{ zIndex: 9999 }}>
+                    <div className="bg-panel rounded-lg shadow-xl w-96 max-w-full max-h-full overflow-hidden" style={{ zIndex: 10000 }}>
                         <div className="flex items-center justify-between p-4 border-b">
                             <h3 className="text-lg font-semibold">Select Data Folder</h3>
                             <button 
@@ -441,6 +442,8 @@
             const [normalizeData, setNormalizeData] = useState(false);
             const [visibleImageKeys, setVisibleImageKeys] = useState({});
             const [smoothingOption, setSmoothingOption] = useState('none');
+            const [deleteStartIdx, setDeleteStartIdx] = useState('');
+            const [deleteEndIdx, setDeleteEndIdx] = useState('');
             const chartRef = useRef(null);
             const chartInstance = useRef(null);
             const chartUpdatePending = useRef(false);
@@ -522,6 +525,10 @@
                             initialImageVisible[key] = true;
                         });
                         setVisibleImageKeys(initialImageVisible);
+
+                        // Set default delete range: 0 to max index
+                        setDeleteStartIdx('0');
+                        setDeleteEndIdx((records.length - 1).toString());
                     }
                 } catch (error) {
                     console.error('Error loading records:', error);
@@ -684,25 +691,37 @@
                                             }
                                         }
                                     },
-                                    // Add deleted indexes as background boxes
-                                    ...deletedIndexes.reduce((acc, delIndex) => {
-                                        // Find corresponding display index
-                                        const displayIndex = records.findIndex(r => r._absolute_index === delIndex);
-                                        if (displayIndex >= 0) {
-                                            acc[`deleted_${delIndex}`] = {
-                                                type: 'box',
-                                                xMin: displayIndex - 0.4,
-                                                xMax: displayIndex + 0.4,
-                                                yMin: 'min',
-                                                yMax: 'max',
-                                                backgroundColor: 'rgba(255, 0, 0, 0.1)',
-                                                borderColor: 'rgba(255, 0, 0, 0.3)',
-                                                borderWidth: 1,
-                                                borderDash: [5, 5]
-                                            };
-                                        }
-                                        return acc;
-                                    }, {})
+                                    // Add deleted indexes as background boxes (only within visible range for performance)
+                                    ...(() => {
+                                        // Create a mapping from _absolute_index to display index for efficiency
+                                        const absoluteToDisplayMap = new Map();
+                                        records.forEach((record, idx) => {
+                                            if (record._absolute_index !== undefined) {
+                                                absoluteToDisplayMap.set(record._absolute_index, idx);
+                                            }
+                                        });
+
+                                        const minRange = zoomRange.min || 0;
+                                        const maxRange = zoomRange.max || records.length - 1;
+
+                                        return deletedIndexes.reduce((acc, delIndex) => {
+                                            const displayIndex = absoluteToDisplayMap.get(delIndex);
+                                            if (displayIndex !== undefined && displayIndex >= minRange && displayIndex <= maxRange) {
+                                                acc[`deleted_${delIndex}`] = {
+                                                    type: 'box',
+                                                    xMin: displayIndex - 0.4,
+                                                    xMax: displayIndex + 0.4,
+                                                    yMin: 'min',
+                                                    yMax: 'max',
+                                                    backgroundColor: 'rgba(255, 0, 0, 0.1)',
+                                                    borderColor: 'rgba(255, 0, 0, 0.3)',
+                                                    borderWidth: 1,
+                                                    borderDash: [5, 5]
+                                                };
+                                            }
+                                            return acc;
+                                        }, {});
+                                    })()
                                 }
                             },
                             tooltip: {
@@ -1133,6 +1152,114 @@
                 setPlaying(!playing);
             };
 
+            const setDeleteIndexRange = async () => {
+                const start = parseInt(deleteStartIdx);
+                const end = parseInt(deleteEndIdx);
+
+                if (isNaN(start) || isNaN(end)) {
+                    alert('開始と終了のインデックスを入力してください');
+                    return;
+                }
+
+                if (start > end) {
+                    alert('開始インデックスは終了インデックス以下である必要があります');
+                    return;
+                }
+
+                if (start < 0 || end >= records.length) {
+                    alert(`インデックスは0〜${records.length - 1}の範囲で指定してください`);
+                    return;
+                }
+
+                // Convert currentIndex to _absolute_index
+                const startAbsoluteIdx = records[start]?._absolute_index;
+                const endAbsoluteIdx = records[end]?._absolute_index;
+
+                if (startAbsoluteIdx === undefined || endAbsoluteIdx === undefined) {
+                    alert('指定されたインデックスのレコードが見つかりません');
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`${API_BASE}/api/delete_indexes`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            start_idx: startAbsoluteIdx,
+                            end_idx: endAbsoluteIdx
+                        })
+                    });
+
+                    const result = await response.json();
+
+                    if (response.ok) {
+                        alert(`削除インデックスを設定しました (${start}〜${end})\n合計: ${result.count}件`);
+                        // Reload data to reflect changes (default range will be set in loadRecords)
+                        await loadData(selectedFolder);
+                    } else {
+                        alert(`エラー: ${result.error}`);
+                    }
+                } catch (error) {
+                    alert(`エラー: ${error.message}`);
+                }
+            };
+
+            const clearDeleteIndexRange = async () => {
+                const start = parseInt(deleteStartIdx);
+                const end = parseInt(deleteEndIdx);
+
+                if (isNaN(start) || isNaN(end)) {
+                    alert('開始と終了のインデックスを入力してください');
+                    return;
+                }
+
+                if (start > end) {
+                    alert('開始インデックスは終了インデックス以下である必要があります');
+                    return;
+                }
+
+                if (start < 0 || end >= records.length) {
+                    alert(`インデックスは0〜${records.length - 1}の範囲で指定してください`);
+                    return;
+                }
+
+                // Convert currentIndex to _absolute_index
+                const startAbsoluteIdx = records[start]?._absolute_index;
+                const endAbsoluteIdx = records[end]?._absolute_index;
+
+                if (startAbsoluteIdx === undefined || endAbsoluteIdx === undefined) {
+                    alert('指定されたインデックスのレコードが見つかりません');
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`${API_BASE}/api/clear_delete_indexes`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            start_idx: startAbsoluteIdx,
+                            end_idx: endAbsoluteIdx
+                        })
+                    });
+
+                    const result = await response.json();
+
+                    if (response.ok) {
+                        alert(`削除インデックスをクリアしました (${start}〜${end})\n残り: ${result.count}件`);
+                        // Reload data to reflect changes (default range will be set in loadRecords)
+                        await loadData(selectedFolder);
+                    } else {
+                        alert(`エラー: ${result.error}`);
+                    }
+                } catch (error) {
+                    alert(`エラー: ${error.message}`);
+                }
+            };
+
             const resetZoom = () => {
                 // Reset the range state first
                 setZoomRange({ min: 0, max: null });
@@ -1310,6 +1437,62 @@
                                                     {playDirection > 0 ? '▶▶' : '◀◀'} {playbackSpeed}x
                                                 </span>
                                             )}
+                                            <div className="border-l pl-2 ml-2 flex items-center gap-2">
+                                                <span className="text-xs font-medium">削除範囲:</span>
+                                                <div className="flex flex-col gap-1">
+                                                    <input
+                                                        type="number"
+                                                        placeholder="開始"
+                                                        value={deleteStartIdx}
+                                                        onChange={(e) => setDeleteStartIdx(e.target.value)}
+                                                        className="w-20 px-2 py-1 border border-panel rounded text-xs bg-input"
+                                                        min="0"
+                                                        max={records.length - 1}
+                                                    />
+                                                    <button
+                                                        onClick={() => setDeleteStartIdx(currentIndex.toString())}
+                                                        className="px-3 py-1 bg-gray-300 text-gray-900 rounded text-xs hover:bg-gray-400"
+                                                        title="現在のインデックスを開始に設定"
+                                                    >
+                                                        現在
+                                                    </button>
+                                                </div>
+                                                <span className="text-xs">〜</span>
+                                                <div className="flex flex-col gap-1">
+                                                    <input
+                                                        type="number"
+                                                        placeholder="終了"
+                                                        value={deleteEndIdx}
+                                                        onChange={(e) => setDeleteEndIdx(e.target.value)}
+                                                        className="w-20 px-2 py-1 border border-panel rounded text-xs bg-input"
+                                                        min="0"
+                                                        max={records.length - 1}
+                                                    />
+                                                    <button
+                                                        onClick={() => setDeleteEndIdx(currentIndex.toString())}
+                                                        className="px-3 py-1 bg-gray-300 text-gray-900 rounded text-xs hover:bg-gray-400"
+                                                        title="現在のインデックスを終了に設定"
+                                                    >
+                                                        現在
+                                                    </button>
+                                                </div>
+                                                <div className="flex flex-col gap-1">
+                                                    <button
+                                                        onClick={setDeleteIndexRange}
+                                                        className="px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600"
+                                                        title="指定した範囲を削除インデックスとして設定"
+                                                    >
+                                                        削除設定
+                                                    </button>
+                                                    <button
+                                                        onClick={clearDeleteIndexRange}
+                                                        className="px-3 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600"
+                                                        title="指定した範囲の削除インデックスをクリア"
+                                                    >
+                                                        削除クリア
+                                                    </button>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

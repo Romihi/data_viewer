@@ -185,12 +185,60 @@ def get_timeline():
     try:
         session_id = request.args.get('session', None)
         key = request.args.get('key', 'user/throttle')
-        
+
         timeline_data = data_loader.get_timeline_data(key, session_id)
-        
+
         return jsonify({
             'key': key,
             'data': timeline_data
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/delete_indexes', methods=['POST'])
+def update_delete_indexes():
+    """Update deleted indexes in manifest file"""
+    try:
+        data = request.json
+        start_idx = data.get('start_idx')
+        end_idx = data.get('end_idx')
+
+        if start_idx is None or end_idx is None:
+            return jsonify({'error': 'start_idx and end_idx are required'}), 400
+
+        if start_idx > end_idx:
+            return jsonify({'error': 'start_idx must be <= end_idx'}), 400
+
+        deleted_indexes = data_loader.update_deleted_indexes(start_idx, end_idx)
+
+        return jsonify({
+            'success': True,
+            'deleted_indexes': deleted_indexes,
+            'count': len(deleted_indexes)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/clear_delete_indexes', methods=['POST'])
+def clear_delete_indexes():
+    """Clear deleted indexes in manifest file"""
+    try:
+        data = request.json
+        start_idx = data.get('start_idx')
+        end_idx = data.get('end_idx')
+
+        if start_idx is None or end_idx is None:
+            return jsonify({'error': 'start_idx and end_idx are required'}), 400
+
+        if start_idx > end_idx:
+            return jsonify({'error': 'start_idx must be <= end_idx'}), 400
+
+        deleted_indexes = data_loader.clear_deleted_indexes(start_idx, end_idx)
+
+        return jsonify({
+            'success': True,
+            'deleted_indexes': deleted_indexes,
+            'count': len(deleted_indexes)
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
