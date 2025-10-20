@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Viewer</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .resize-handle {
+            position: absolute;
+            background: #3B82F6;
+            opacity: 0.7;
+            transition: all 0.2s;
+            z-index: 100;
+            pointer-events: auto;
+        }
+        .resize-handle:hover, .resize-handle.active {
+            opacity: 1;
+            background: #2563EB;
+        }
+        .resize-handle::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 1px;
+        }
+        .resize-handle-h {
+            cursor: ew-resize;
+            width: 6px;
+            top: 0;
+            bottom: 0;
+            right: -3px;
+            border-radius: 3px;
+        }
+        .resize-handle-h::before {
+            width: 2px;
+            height: 20px;
+        }
+        .resize-handle-v {
+            cursor: ns-resize;
+            height: 8px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border-radius: 3px;
+        }
+        .resize-handle-v::before {
+            width: 20px;
+            height: 2px;
+        }
+        .resizable-panel {
+            position: relative;
+            overflow: visible;
+            padding-bottom: 8px;
+        }
+        .image-grid {
+            display: grid;
+            gap: 0.5rem;
+            height: 100%;
+        }
+        .compact-controls {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            padding: 0.5rem;
+        }
+        .chart-container {
+            cursor: crosshair;
+            position: relative;
+            overflow: hidden;
+            min-height: 200px;
+        }
+        .deleted-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                45deg,
+                rgba(255, 0, 0, 0.1),
+                rgba(255, 0, 0, 0.1) 10px,
+                transparent 10px,
+                transparent 20px
+            );
+            pointer-events: none;
+            border-radius: 0.375rem;
+        }
+        .delete-label {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 0, 0, 0.9);
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .file-browser {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+        }
+        .file-item {
+            padding: 0.5rem;
+            border-bottom: 1px solid #f3f4f6;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .file-item:hover {
+            background-color: #f9fafb;
+        }
+        .file-item.data-folder {
+            background-color: #fef3c7;
+            font-weight: 600;
+        }
+        .file-item.data-folder:hover {
+            background-color: #fcd34d;
+        }
+        .range-controls {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+            background-color: #f9fafb;
+            border-radius: 0.375rem;
+            border: 1px solid #e5e7eb;
+            height: 40px;
+            flex-shrink: 0;
+        }
+        .range-input {
+            width: 80px;
+            padding: 0.25rem 0.5rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        {% raw %}
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        const API_BASE = '';
+
+        // File Browser component
+        function FileBrowser({ onSelectFolder, onClose }) {
+            const [currentPath, setCurrentPath] = useState('');
+            const [items, setItems] = useState([]);
+            const [loading, setLoading] = useState(false);
+
+            const browseDirectory = async (path = '') => {
+                setLoading(true);
+                try {
+                    const response = await fetch(`${API_BASE}/api/browse?path=${encodeURIComponent(path)}`);
+                    const data = await response.json();
+                    
+                    if (data.error) {
+                        console.error('Browse error:', data.error);
+                        return;
+                    }
+                    
+                    setCurrentPath(data.current_path);
+                    setItems(data.items);
+                } catch (error) {
+                    console.error('Error browsing directory:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            useEffect(() => {
+                browseDirectory();
+            }, []);
+
+            const handleItemClick = (item) => {
+                if (item.is_data_folder) {
+                    onSelectFolder(item.path);
+                } else if (item.type === 'directory' || item.type === 'parent') {
+                    browseDirectory(item.path);
+                }
+            };
+
+            const getFolderIcon = (item) => {
+                if (item.type === 'parent') return '⬆️';
+                if (item.is_data_folder) return '📊';
+                return '📁';
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg shadow-xl w-96 max-w-full max-h-full overflow-hidden">
+                        <div className="flex items-center justify-between p-4 border-b">
+                            <h3 className="text-lg font-semibold">Select Data Folder</h3>
+                            <button 
+                                onClick={onClose}
+                                className="text-gray-500 hover:text-gray-700"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        
+                        <div className="p-4">
+                            <div className="text-sm text-gray-600 mb-2 truncate" title={currentPath}>
+                                📍 {currentPath}
+                            </div>
+                            
+                            {loading ? (
+                                <div className="flex items-center justify-center py-8">
+                                    <div className="text-gray-500">Loading...</div>
+                                </div>
+                            ) : (
+                                <div className="file-browser">
+                                    {items.map((item, index) => (
+                                        <div
+                                            key={index}
+                                            className={`file-item ${item.is_data_folder ? 'data-folder' : ''}`}
+                                            onClick={() => handleItemClick(item)}
+                                        >
+                                            <span>{getFolderIcon(item)}</span>
+                                            <span className="flex-1 truncate">{item.name}</span>
+                                            {item.is_data_folder && (
+                                                <span className="text-xs text-orange-600">DATA</span>
+                                            )}
+                                        </div>
+                                    ))}
+                                    
+                                    {items.length === 0 && (
+                                        <div className="p-4 text-center text-gray-500">
+                                            No folders found
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        
+                        <div className="p-4 border-t text-xs text-gray-500">
+                            💡 Yellow folders contain Donkey Car data
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Resizable panel component
+        function ResizablePanel({ children, direction = 'horizontal', initialSize = 50, minSize = 100, maxSize = null, onResize }) {
+            const [size, setSize] = useState(initialSize);
+            const [isResizing, setIsResizing] = useState(false);
+            const panelRef = useRef(null);
+
+            const handleMouseDown = useCallback((e) => {
+                setIsResizing(true);
+                e.preventDefault();
+            }, [direction]);
+
+            useEffect(() => {
+                const handleMouseMove = (e) => {
+                    if (!isResizing || !panelRef.current) {
+                        return;
+                    }
+
+                    const panel = panelRef.current;
+                    const container = panel.parentElement;
+                    const containerRect = container.getBoundingClientRect();
+
+                    let newSize;
+                    if (direction === 'horizontal') {
+                        // Calculate new width based on mouse position relative to container start
+                        newSize = e.clientX - containerRect.left;
+                        // Limit to container width - allow up to 90% for better flexibility
+                        const maxWidth = maxSize || containerRect.width * 0.9; // Max 90% of container
+                        newSize = Math.min(newSize, maxWidth);
+                        newSize = Math.max(newSize, minSize); // Ensure minimum size
+                    } else {
+                        // For vertical, calculate from container top
+                        const panelRect = panel.getBoundingClientRect();
+                        newSize = e.clientY - panelRect.top;
+                        // Limit to reasonable height range
+                        const maxHeight = maxSize || containerRect.height * 0.8;
+                        newSize = Math.min(newSize, maxHeight);
+                        newSize = Math.max(newSize, minSize);
+                    }
+
+                    setSize(newSize);
+                    if (onResize) onResize(newSize);
+                };
+
+                const handleMouseUp = () => {
+                    setIsResizing(false);
+                };
+
+                if (isResizing) {
+                    document.addEventListener('mousemove', handleMouseMove);
+                    document.addEventListener('mouseup', handleMouseUp);
+                }
+
+                return () => {
+                    document.removeEventListener('mousemove', handleMouseMove);
+                    document.removeEventListener('mouseup', handleMouseUp);
+                };
+            }, [isResizing, direction, minSize, maxSize, onResize]);
+
+            const style = direction === 'horizontal'
+                ? { width: `${size}px`, minWidth: `${minSize}px`, flexShrink: 0 }
+                : { height: `${size}px`, minHeight: `${minSize}px`, flexShrink: 0 };
+
+            return (
+                <div ref={panelRef} className="resizable-panel" style={style}>
+                    {children}
+                    <div 
+                        className={`resize-handle resize-handle-${direction === 'horizontal' ? 'h' : 'v'} ${isResizing ? 'active' : ''}`}
+                        onMouseDown={handleMouseDown}
+                    />
+                </div>
+            );
+        }
+
+        function DonkeycarViewer() {
+            const [folders, setFolders] = useState([]);
+            const [selectedFolder, setSelectedFolder] = useState(null);
+            const [dataInfo, setDataInfo] = useState(null);
+            const [records, setRecords] = useState([]);
+            const [currentIndex, setCurrentIndex] = useState(0);
+            const [statistics, setStatistics] = useState({});
+            const [selectedKeys, setSelectedKeys] = useState(['user/throttle', 'user/angle']);
+            const [visibleKeys, setVisibleKeys] = useState({});
+            const [playing, setPlaying] = useState(false);
+            const [playbackSpeed, setPlaybackSpeed] = useState(1);
+            const [playDirection, setPlayDirection] = useState(1); // 1 for forward, -1 for reverse
+            const [imagesPanelWidth, setImagesPanelWidth] = useState(400);
+            const [timelineHeight, setTimelineHeight] = useState(400);
+            const [deletedIndexes, setDeletedIndexes] = useState([]);
+            const [showFileBrowser, setShowFileBrowser] = useState(false);
+            const [zoomRange, setZoomRange] = useState({ min: 0, max: null });
+            const [tempRange, setTempRange] = useState({ min: '', max: '' });
+            const [preloadedImages, setPreloadedImages] = useState(new Map());
+            const chartRef = useRef(null);
+            const chartInstance = useRef(null);
+            const chartUpdatePending = useRef(false);
+            const lastChartUpdate = useRef(0);
+            const preloadingImages = useRef(new Set()); // Track images currently being loaded
+
+            // Load folders on mount
+            useEffect(() => {
+                loadFolders();
+            }, []);
+
+            // Auto-play functionality
+            useEffect(() => {
+                if (playing && records.length > 0) {
+                    const interval = setInterval(() => {
+                        setCurrentIndex(prev => {
+                            if (prev >= records.length - 1) {
+                                setPlaying(false);
+                                return prev;
+                            }
+                            return prev + 1;
+                        });
+                    }, 100 / playbackSpeed);
+                    return () => clearInterval(interval);
+                }
+            }, [playing, records.length, playbackSpeed]);
+
+            const loadFolders = async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/api/folders`);
+                    const data = await response.json();
+                    setFolders(data.folders || []);
+                } catch (error) {
+                    console.error('Error loading folders:', error);
+                }
+            };
+
+            const loadData = async (folderPath) => {
+                try {
+                    const response = await fetch(`${API_BASE}/api/load_data`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ folder_path: folderPath }),
+                    });
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        setDataInfo(result.info);
+                        setSelectedFolder(folderPath);
+                        setDeletedIndexes(result.info.deleted_indexes || []);
+                        
+                        // Load initial records
+                        await loadRecords();
+                        
+                        // Load statistics
+                        await loadStatistics();
+                        
+                        // Reset zoom range
+                        setZoomRange({ min: 0, max: null });
+                    }
+                } catch (error) {
+                    console.error('Error loading data:', error);
+                }
+            };
+
+            const loadRecords = async (start = 0, end = null) => {
+                try {
+                    let url = `${API_BASE}/api/data?start=${start}`;
+                    if (end !== null) {
+                        url += `&end=${end}`;
+                    }
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    setRecords(data.records || []);
+                } catch (error) {
+                    console.error('Error loading records:', error);
+                }
+            };
+
+            const loadStatistics = async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/api/statistics`);
+                    const stats = await response.json();
+                    setStatistics(stats);
+                    
+                    // Initialize visible keys - default to user/angle and user/throttle
+                    const initialVisible = {};
+                    Object.keys(stats).forEach(key => {
+                        initialVisible[key] = key === 'user/angle' || key === 'user/throttle';
+                    });
+                    setVisibleKeys(initialVisible);
+                } catch (error) {
+                    console.error('Error loading statistics:', error);
+                }
+            };
+
+            const createChart = () => {
+                if (!chartRef.current || !records.length) return;
+
+                const ctx = chartRef.current.getContext('2d');
+                
+                // Destroy existing chart
+                if (chartInstance.current) {
+                    chartInstance.current.destroy();
+                }
+
+                // Prepare datasets for all visible keys
+                const datasets = Object.keys(visibleKeys)
+                    .filter(key => visibleKeys[key])
+                    .map((key, idx) => {
+                        const color = `hsl(${(idx * 360) / Object.keys(visibleKeys).length}, 70%, 50%)`;
+                        return {
+                            label: key,
+                            data: records.map((record, idx) => ({
+                                x: idx,
+                                y: record[key] || 0
+                            })),
+                            borderColor: color,
+                            backgroundColor: color + '20',
+                            borderWidth: 1.5,
+                            pointRadius: 0,
+                            tension: 0.1
+                        };
+                    });
+
+                // Create new chart
+                chartInstance.current = new Chart(ctx, {
+                    type: 'line',
+                    data: { datasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        resizeDelay: 0,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false,
+                        },
+                        onClick: (event, elements, chart) => {
+                            // Handle click on chart to seek
+                            const canvasPosition = Chart.helpers.getRelativePosition(event, chart);
+                            const dataX = chart.scales.x.getValueForPixel(canvasPosition.x);
+                            const newIndex = Math.round(Math.max(0, Math.min(records.length - 1, dataX)));
+                            setCurrentIndex(newIndex);
+                        },
+                        onZoomComplete: function({chart}) {
+                            // Update zoom range when user zooms
+                            const xScale = chart.scales.x;
+                            setZoomRange({
+                                min: Math.round(xScale.min),
+                                max: Math.round(xScale.max)
+                            });
+                        },
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'right',
+                                labels: {
+                                    boxWidth: 12,
+                                    padding: 10,
+                                    font: {
+                                        size: 11
+                                    }
+                                }
+                            },
+                            annotation: {
+                                annotations: {
+                                    timeline: {
+                                        type: 'line',
+                                        scaleID: 'x',
+                                        value: currentIndex,
+                                        borderColor: 'rgb(255, 99, 132)',
+                                        borderWidth: 3,
+                                        borderDash: [5, 5],
+                                        label: {
+                                            display: true,
+                                            content: `Frame ${currentIndex}`,
+                                            position: 'start',
+                                            backgroundColor: 'rgba(255, 99, 132, 0.8)',
+                                            font: {
+                                                size: 10
+                                            }
+                                        }
+                                    },
+                                    // Add deleted indexes as background boxes
+                                    ...deletedIndexes.reduce((acc, delIndex) => {
+                                        // Find corresponding display index
+                                        const displayIndex = records.findIndex(r => r._absolute_index === delIndex);
+                                        if (displayIndex >= 0) {
+                                            acc[`deleted_${delIndex}`] = {
+                                                type: 'box',
+                                                xMin: displayIndex - 0.4,
+                                                xMax: displayIndex + 0.4,
+                                                yMin: 'min',
+                                                yMax: 'max',
+                                                backgroundColor: 'rgba(255, 0, 0, 0.1)',
+                                                borderColor: 'rgba(255, 0, 0, 0.3)',
+                                                borderWidth: 1,
+                                                borderDash: [5, 5]
+                                            };
+                                        }
+                                        return acc;
+                                    }, {})
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    title: function(context) {
+                                        return `Index: ${Math.round(context[0].parsed.x)}`;
+                                    }
+                                }
+                            },
+                            zoom: {
+                                pan: {
+                                    enabled: true,
+                                    mode: 'x',
+                                    onPanComplete: function({chart}) {
+                                        // Update range when user pans
+                                        const xScale = chart.scales.x;
+                                        setZoomRange({
+                                            min: Math.round(xScale.min),
+                                            max: Math.round(xScale.max)
+                                        });
+                                    }
+                                },
+                                zoom: {
+                                    wheel: {
+                                        enabled: true,
+                                    },
+                                    pinch: {
+                                        enabled: true
+                                    },
+                                    mode: 'x',
+                                    onZoomComplete: function({chart}) {
+                                        // Update range when user zooms
+                                        const xScale = chart.scales.x;
+                                        setZoomRange({
+                                            min: Math.round(xScale.min),
+                                            max: Math.round(xScale.max)
+                                        });
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                type: 'linear',
+                                display: true,
+                                title: {
+                                    display: true,
+                                    text: 'Record Index'
+                                },
+                                min: zoomRange.min,
+                                max: zoomRange.max !== null ? zoomRange.max : undefined
+                            },
+                            y: {
+                                display: true,
+                                title: {
+                                    display: true,
+                                    text: 'Value'
+                                }
+                            }
+                        }
+                    }
+                });
+            };
+
+            const updateTimelineMarker = () => {
+                if (!chartInstance.current) return;
+
+                // Throttle chart updates for better performance at high speeds
+                const now = Date.now();
+                const timeSinceLastUpdate = now - lastChartUpdate.current;
+                const minUpdateInterval = playbackSpeed >= 10 ? 100 : playbackSpeed >= 5 ? 50 : 16; // 100ms for 10x+, 50ms for 5x+, 16ms (~60fps) otherwise
+
+                if (timeSinceLastUpdate < minUpdateInterval && chartUpdatePending.current) {
+                    return; // Skip this update
+                }
+
+                if (chartUpdatePending.current) {
+                    return; // Already have an update pending
+                }
+
+                chartUpdatePending.current = true;
+                requestAnimationFrame(() => {
+                    if (chartInstance.current) {
+                        chartInstance.current.options.plugins.annotation.annotations.timeline.value = currentIndex;
+                        chartInstance.current.options.plugins.annotation.annotations.timeline.label.content = `Frame ${currentIndex}`;
+                        chartInstance.current.update('none'); // 'none' prevents animations
+                        lastChartUpdate.current = Date.now();
+                    }
+                    chartUpdatePending.current = false;
+                });
+            };
+
+            // Create chart when data or visible keys change
+            useEffect(() => {
+                createChart();
+            }, [records, visibleKeys, deletedIndexes, zoomRange]);
+
+            // Update only timeline marker when index changes
+            useEffect(() => {
+                updateTimelineMarker();
+            }, [currentIndex]);
+
+            // Playback control - simulates continuous button press
+            useEffect(() => {
+                let interval;
+                if (playing && records.length > 0) {
+                    // Calculate interval based on speed
+                    // For high speeds, use shorter intervals to maintain smooth playback
+                    const baseInterval = playbackSpeed <= 1 ? 1000 / playbackSpeed :
+                                       playbackSpeed <= 2 ? 100 :
+                                       playbackSpeed <= 5 ? 80 :
+                                       playbackSpeed <= 10 ? 60 : 40;
+
+                    interval = setInterval(() => {
+                        // Use step functions directly - same as button press
+                        if (playDirection > 0) {
+                            // Check if we would go out of bounds
+                            setCurrentIndex(prev => {
+                                const skipAmount = Math.max(1, Math.floor(playbackSpeed));
+                                const next = prev + skipAmount;
+                                if (next >= records.length) {
+                                    setPlaying(false);
+                                    return records.length - 1;
+                                }
+                                return next;
+                            });
+                        } else {
+                            setCurrentIndex(prev => {
+                                const skipAmount = Math.max(1, Math.floor(playbackSpeed));
+                                const next = prev - skipAmount;
+                                if (next < 0) {
+                                    setPlaying(false);
+                                    return 0;
+                                }
+                                return next;
+                            });
+                        }
+                    }, baseInterval);
+                }
+                return () => clearInterval(interval);
+            }, [playing, playbackSpeed, playDirection, records.length]);
+
+            // Preload images aggressively for smooth playback
+            useEffect(() => {
+                if (records.length > 0) {
+                    const skipAmount = Math.max(1, Math.floor(playbackSpeed));
+                    // Always preload ahead, more aggressively when playing
+                    const preloadCount = playing
+                        ? (playbackSpeed >= 20 ? 40 : playbackSpeed >= 10 ? 35 : playbackSpeed >= 5 ? 30 : 20)
+                        : 10; // Even when not playing, preload a few frames ahead
+
+                    // Preload current and future frames
+                    for (let i = 0; i <= preloadCount; i++) {
+                        const nextIndex = currentIndex + (i * skipAmount * playDirection);
+                        if (nextIndex >= 0 && nextIndex < records.length) {
+                            const record = records[nextIndex];
+                            const imageKeys = Object.keys(record).filter(key => key.endsWith('/image_array'));
+
+                            imageKeys.forEach(key => {
+                                const imageUrl = `${API_BASE}/api/image/${record[key]}`;
+                                // Check if already loaded or currently loading
+                                if (!preloadedImages.has(imageUrl) && !preloadingImages.current.has(imageUrl)) {
+                                    preloadingImages.current.add(imageUrl);
+                                    const img = new Image();
+                                    img.onload = () => {
+                                        setPreloadedImages(prev => {
+                                            const newMap = new Map(prev);
+                                            newMap.set(imageUrl, img);
+                                            return newMap;
+                                        });
+                                        preloadingImages.current.delete(imageUrl);
+                                    };
+                                    img.onerror = () => {
+                                        preloadingImages.current.delete(imageUrl);
+                                    };
+                                    img.src = imageUrl; // Set src after defining handlers
+                                }
+                            });
+                        }
+                    }
+                }
+            }, [currentIndex, playing, playbackSpeed, playDirection, records]);
+
+            const toggleKeyVisibility = (key) => {
+                setVisibleKeys(prev => ({
+                    ...prev,
+                    [key]: !prev[key]
+                }));
+            };
+
+            const showAllKeys = () => {
+                const newVisible = {};
+                Object.keys(statistics).forEach(key => {
+                    newVisible[key] = true;
+                });
+                setVisibleKeys(newVisible);
+            };
+
+            const hideAllKeys = () => {
+                const newVisible = {};
+                Object.keys(statistics).forEach(key => {
+                    newVisible[key] = false;
+                });
+                setVisibleKeys(newVisible);
+            };
+
+            // Navigation functions
+            const stepForward = () => {
+                setCurrentIndex(prev => Math.min(prev + Math.max(1, Math.floor(playbackSpeed)), records.length - 1));
+            };
+
+            const stepBackward = () => {
+                setCurrentIndex(prev => Math.max(prev - Math.max(1, Math.floor(playbackSpeed)), 0));
+            };
+
+            const togglePlayDirection = () => {
+                setPlayDirection(prev => prev * -1);
+            };
+
+            const playForward = () => {
+                setPlayDirection(1);
+                setPlaying(!playing);
+            };
+
+            const playReverse = () => {
+                setPlayDirection(-1);
+                setPlaying(!playing);
+            };
+
+            const resetZoom = () => {
+                // Reset the range state first
+                setZoomRange({ min: 0, max: null });
+                
+                // Force chart recreation by triggering useEffect
+                // This ensures the chart is redrawn with the full range
+                setTimeout(() => {
+                    if (chartInstance.current) {
+                        chartInstance.current.resetZoom();
+                        
+                        // Manually reset the scale options
+                        const chart = chartInstance.current;
+                        chart.options.scales.x.min = undefined;
+                        chart.options.scales.x.max = undefined;
+                        
+                        // Update the chart
+                        chart.update('active');
+                    }
+                }, 10);
+            };
+
+            const applyRange = () => {
+                const min = parseInt(tempRange.min) || 0;
+                const max = parseInt(tempRange.max) || records.length - 1;
+                
+                if (min >= 0 && max >= min && max < records.length) {
+                    setZoomRange({ min, max });
+                    setTempRange({ min: '', max: '' });
+                    
+                    // Force chart update
+                    setTimeout(() => {
+                        if (chartInstance.current) {
+                            chartInstance.current.options.scales.x.min = min;
+                            chartInstance.current.options.scales.x.max = max;
+                            chartInstance.current.update('none'); // 'none' prevents animations
+                        }
+                    }, 10);
+                } else {
+                    alert('Invalid range. Please check your input values.');
+                }
+            };
+
+            const setPresetRange = (percentage) => {
+                const total = records.length;
+                const rangeSize = Math.floor(total * percentage);
+                const start = Math.max(0, currentIndex - Math.floor(rangeSize / 2));
+                const end = Math.min(total - 1, start + rangeSize);
+                
+                setZoomRange({ min: start, max: end });
+                
+                // Force chart update
+                setTimeout(() => {
+                    if (chartInstance.current) {
+                        chartInstance.current.options.scales.x.min = start;
+                        chartInstance.current.options.scales.x.max = end;
+                        chartInstance.current.update('none'); // 'none' prevents animations
+                    }
+                }, 10);
+            };
+
+            const currentRecord = records[currentIndex] || {};
+            const imageKeys = Object.keys(currentRecord).filter(key => key.endsWith('/image_array'));
+
+            // Dynamic grid style
+            const gridStyle = {
+                gridTemplateColumns: imageKeys.length > 2 ? 'repeat(2, 1fr)' : '1fr',
+                gridTemplateRows: imageKeys.length > 2 ? 'repeat(2, 1fr)' : 'auto'
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-100">
+                    <div className="p-2">
+                        <h1 className="text-2xl font-bold mb-4">Data Viewer</h1>
+                        
+                        {/* Folder Selection */}
+                        {!selectedFolder && (
+                            <div className="bg-white rounded-lg shadow p-6 mb-6">
+                                <h2 className="text-xl font-semibold mb-4">Select Data Folder</h2>
+                                <div className="mb-4">
+                                    <button
+                                        onClick={() => setShowFileBrowser(true)}
+                                        className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+                                    >
+                                        📁 Browse Folders
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                    {folders.map(folder => (
+                                        <button
+                                            key={folder.path}
+                                            onClick={() => loadData(folder.path)}
+                                            className="p-4 border rounded-lg hover:bg-blue-50 transition"
+                                        >
+                                            {folder.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Data Viewer */}
+                        {selectedFolder && dataInfo && (
+                            <div className="flex flex-col h-screen">
+                                {/* Compact header with info and controls */}
+                                <div className="bg-white rounded-lg shadow p-3 mb-2">
+                                    <div className="flex items-center justify-between">
+                                        {/* Data Info */}
+                                        <div className="flex gap-4 text-sm items-center">
+                                            <button
+                                                onClick={() => setShowFileBrowser(true)}
+                                                className="px-2 py-1 bg-gray-500 text-white rounded text-xs hover:bg-gray-600 transition"
+                                                title="Change folder"
+                                            >
+                                                📁
+                                            </button>
+                                            <span><strong>Records:</strong> {dataInfo.total_records}</span>
+                                            <span><strong>Deleted:</strong> {dataInfo.deleted_indexes?.length || 0}</span>
+                                            <span><strong>Sessions:</strong> {dataInfo.sessions.length}</span>
+                                            <span><strong>Duration:</strong> {dataInfo.timestamp_range ? 
+                                                `${(dataInfo.timestamp_range.duration_ms / 1000).toFixed(1)}s` : 'N/A'}</span>
+                                        </div>
+
+                                        {/* Playback Controls */}
+                                        <div className="compact-controls">
+                                            <button
+                                                onClick={stepBackward}
+                                                className="px-2 py-1 bg-gray-500 text-white rounded text-sm hover:bg-gray-600"
+                                                title="Step Backward"
+                                            >
+                                                ⏮
+                                            </button>
+                                            <button
+                                                onClick={playReverse}
+                                                className={`px-2 py-1 rounded text-sm ${playing && playDirection < 0 ? 'bg-red-500 text-white' : 'bg-orange-500 text-white hover:bg-orange-600'}`}
+                                                title="Play Reverse"
+                                            >
+                                                ⏪
+                                            </button>
+                                            <button
+                                                onClick={() => setPlaying(false)}
+                                                className="px-2 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700"
+                                                title="Stop"
+                                            >
+                                                ⏹
+                                            </button>
+                                            <button
+                                                onClick={playForward}
+                                                className={`px-2 py-1 rounded text-sm ${playing && playDirection > 0 ? 'bg-red-500 text-white' : 'bg-blue-500 text-white hover:bg-blue-600'}`}
+                                                title="Play Forward"
+                                            >
+                                                ▶
+                                            </button>
+                                            <button
+                                                onClick={stepForward}
+                                                className="px-2 py-1 bg-gray-500 text-white rounded text-sm hover:bg-gray-600"
+                                                title="Step Forward"
+                                            >
+                                                ⏭
+                                            </button>
+                                            <select
+                                                value={playbackSpeed}
+                                                onChange={(e) => setPlaybackSpeed(parseFloat(e.target.value))}
+                                                className="px-2 py-1 border rounded text-sm"
+                                            >
+                                                <option value="0.5">0.5x</option>
+                                                <option value="1">1x</option>
+                                                <option value="2">2x</option>
+                                                <option value="5">5x</option>
+                                                <option value="10">10x</option>
+                                                <option value="20">20x</option>
+                                            </select>
+                                            <input
+                                                type="range"
+                                                min="0"
+                                                max={records.length - 1}
+                                                value={currentIndex}
+                                                onChange={(e) => setCurrentIndex(parseInt(e.target.value))}
+                                                className="w-64"
+                                            />
+                                            <span className="text-sm">{currentIndex} / {records.length - 1}</span>
+                                            {playing && (
+                                                <span className="text-xs text-blue-600">
+                                                    {playDirection > 0 ? '▶' : '⏪'} {playbackSpeed}x
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Main Content */}
+                                <div className="flex flex-1 gap-2" style={{ minHeight: 0 }}>
+                                    {/* Images Panel */}
+                                    <ResizablePanel 
+                                        direction="horizontal" 
+                                        initialSize={400} 
+                                        minSize={200}
+                                        maxSize={800}
+                                        onResize={setImagesPanelWidth}
+                                    >
+                                        <div className="bg-white rounded-lg shadow p-3 h-full">
+                                            <h3 className="text-sm font-semibold mb-2">Images</h3>
+                                            <div 
+                                                className="image-grid" 
+                                                style={gridStyle}
+                                            >
+                                                {imageKeys.map(key => {
+                                                    const imageUrl = `${API_BASE}/api/image/${currentRecord[key]}`;
+                                                    const preloadedImg = preloadedImages.get(imageUrl);
+
+                                                    return (
+                                                    <div key={key} className="flex flex-col relative">
+                                                        <p className="text-xs text-gray-600 mb-1">{key}</p>
+                                                        <div className="relative">
+                                                            <img
+                                                                src={preloadedImg ? preloadedImg.src : imageUrl}
+                                                                alt={key}
+                                                                className="w-full h-full object-contain rounded"
+                                                                style={{ maxHeight: '150px' }}
+                                                            />
+                                                            {currentRecord._is_deleted && (
+                                                                <>
+                                                                    <div className="deleted-overlay"></div>
+                                                                    <div className="delete-label">DELETE</div>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </ResizablePanel>
+
+                                    {/* Data Panel */}
+                                    <div className="flex-1 flex flex-col gap-2" style={{ minWidth: '300px' }}>
+                                        {/* Timeline Chart */}
+                                        <ResizablePanel
+                                            direction="vertical"
+                                            initialSize={400}
+                                            minSize={250}
+                                            onResize={setTimelineHeight}
+                                        >
+                                            <div className="bg-white rounded-lg shadow p-3" style={{ height: 'calc(100% - 8px)' }}>
+                                            <div className="flex justify-between items-center mb-2">
+                                                <h3 className="text-sm font-semibold">Timeline</h3>
+                                                <details className="relative">
+                                                    <summary className="cursor-pointer text-sm text-blue-600 hover:text-blue-800">
+                                                        Select Data ({Object.values(visibleKeys).filter(v => v).length} active)
+                                                    </summary>
+                                                    <div className="absolute right-0 mt-1 w-64 bg-white border rounded-lg shadow-lg p-2 z-10 max-h-64 overflow-y-auto">
+                                                        {/* Control buttons */}
+                                                        <div className="flex gap-2 mb-2 pb-2 border-b">
+                                                            <button
+                                                                onClick={showAllKeys}
+                                                                className="px-2 py-1 bg-green-500 text-white rounded text-xs hover:bg-green-600"
+                                                            >
+                                                                全て表示
+                                                            </button>
+                                                            <button
+                                                                onClick={hideAllKeys}
+                                                                className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600"
+                                                            >
+                                                                全て非表示
+                                                            </button>
+                                                        </div>
+                                                        {Object.keys(statistics).map(key => (
+                                                            <label key={key} className="flex items-center p-1 hover:bg-gray-50 cursor-pointer">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={visibleKeys[key] || false}
+                                                                    onChange={() => toggleKeyVisibility(key)}
+                                                                    className="mr-2"
+                                                                />
+                                                                <span className="text-sm">{key}</span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                </details>
+                                            </div>
+                                            
+                                            {/* Range Controls */}
+                                            <div className="range-controls">
+                                                <span className="text-xs font-medium">Range:</span>
+                                                <input
+                                                    type="number"
+                                                    placeholder="Min"
+                                                    value={tempRange.min}
+                                                    onChange={(e) => setTempRange(prev => ({ ...prev, min: e.target.value }))}
+                                                    className="range-input"
+                                                    min="0"
+                                                    max={records.length - 1}
+                                                />
+                                                <span className="text-xs">to</span>
+                                                <input
+                                                    type="number"
+                                                    placeholder="Max"
+                                                    value={tempRange.max}
+                                                    onChange={(e) => setTempRange(prev => ({ ...prev, max: e.target.value }))}
+                                                    className="range-input"
+                                                    min="0"
+                                                    max={records.length - 1}
+                                                />
+                                                <button
+                                                    onClick={applyRange}
+                                                    className="px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600"
+                                                >
+                                                    Apply
+                                                </button>
+                                                <button
+                                                    onClick={() => setPresetRange(0.1)}
+                                                    className="px-2 py-1 bg-gray-500 text-white rounded text-xs hover:bg-gray-600"
+                                                    title="Show 10% around current position"
+                                                >
+                                                    10%
+                                                </button>
+                                                <button
+                                                    onClick={() => setPresetRange(0.25)}
+                                                    className="px-2 py-1 bg-gray-500 text-white rounded text-xs hover:bg-gray-600"
+                                                    title="Show 25% around current position"
+                                                >
+                                                    25%
+                                                </button>
+                                                <button
+                                                    onClick={resetZoom}
+                                                    className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600"
+                                                >
+                                                    Reset
+                                                </button>
+                                                <span className="text-xs text-gray-600">
+                                                    {zoomRange.min} - {zoomRange.max !== null ? zoomRange.max : records.length - 1}
+                                                </span>
+                                            </div>
+                                            <div className="chart-container" style={{ height: 'calc(100% - 100px)' }}>
+                                                <canvas ref={chartRef}></canvas>
+                                            </div>
+                                            </div>
+                                        </ResizablePanel>
+
+                                        {/* Statistics and Current Record Data - Full Height */}
+                                        <div className="flex gap-2 flex-1">
+                                            {/* Statistics Panel - 70% width */}
+                                            <div className="bg-white rounded-lg shadow p-3 overflow-hidden" style={{ flex: '7' }}>
+                                                <h3 className="text-sm font-semibold mb-2">Statistics</h3>
+                                                <div className="overflow-y-auto" style={{ height: 'calc(100% - 30px)' }}>
+                                                    <table className="w-full text-xs">
+                                                        <thead>
+                                                            <tr className="bg-gray-50">
+                                                                <th className="py-1 px-2 text-left">Key</th>
+                                                                <th className="py-1 px-1 text-center">Mean</th>
+                                                                <th className="py-1 px-1 text-center">Std</th>
+                                                                <th className="py-1 px-1 text-center">Min</th>
+                                                                <th className="py-1 px-1 text-center">Max</th>
+                                                                <th className="py-1 px-1 text-center">Median</th>
+                                                                <th className="py-1 px-1 text-center">Q1</th>
+                                                                <th className="py-1 px-1 text-center">Q3</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {Object.entries(statistics).map(([key, stats]) => (
+                                                                <tr key={key} className="border-b hover:bg-gray-50">
+                                                                    <td className="py-1 px-2 font-medium text-xs">{key}</td>
+                                                                    <td className="py-1 px-1 text-center text-xs">
+                                                                        {stats.mean?.toFixed(3) || 'N/A'}
+                                                                    </td>
+                                                                    <td className="py-1 px-1 text-center text-xs">
+                                                                        {stats.std?.toFixed(3) || 'N/A'}
+                                                                    </td>
+                                                                    <td className="py-1 px-1 text-center text-xs">
+                                                                        {stats.min?.toFixed(3) || 'N/A'}
+                                                                    </td>
+                                                                    <td className="py-1 px-1 text-center text-xs">
+                                                                        {stats.max?.toFixed(3) || 'N/A'}
+                                                                    </td>
+                                                                    <td className="py-1 px-1 text-center text-xs">
+                                                                        {stats.median?.toFixed(3) || 'N/A'}
+                                                                    </td>
+                                                                    <td className="py-1 px-1 text-center text-xs">
+                                                                        {stats.q1?.toFixed(3) || 'N/A'}
+                                                                    </td>
+                                                                    <td className="py-1 px-1 text-center text-xs">
+                                                                        {stats.q3?.toFixed(3) || 'N/A'}
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+
+                                            {/* Current Record Data - 30% width */}
+                                            <div className="bg-white rounded-lg shadow p-3 overflow-hidden" style={{ flex: '3' }}>
+                                                <h3 className="text-sm font-semibold mb-2">Current Record Data</h3>
+                                                <div className="overflow-y-auto" style={{ height: 'calc(100% - 30px)' }}>
+                                                    <table className="w-full text-xs">
+                                                        <tbody>
+                                                            {Object.entries(currentRecord)
+                                                                .filter(([key]) => !key.endsWith('/image_array') &&
+                                                                    !['_absolute_index', '_display_index', '_index', '_is_deleted'].includes(key))
+                                                                .map(([key, value]) => (
+                                                                    <tr key={key} className="border-b">
+                                                                        <td className="py-1 font-medium">{key}</td>
+                                                                        <td className="py-1 text-right">
+                                                                            {typeof value === 'object' ? 
+                                                                                JSON.stringify(value) : 
+                                                                                String(value)}
+                                                                        </td>
+                                                                    </tr>
+                                                                ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* File Browser Modal */}
+                        {showFileBrowser && (
+                            <FileBrowser
+                                onSelectFolder={(folderPath) => {
+                                    setShowFileBrowser(false);
+                                    loadData(folderPath);
+                                }}
+                                onClose={() => setShowFileBrowser(false)}
+                            />
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<DonkeycarViewer />);
+        {% endraw %}
+    </script>
+</body>
+</html>
