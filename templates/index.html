@@ -359,27 +359,19 @@
             const chartUpdatePending = useRef(false);
             const lastChartUpdate = useRef(0);
             const preloadingImages = useRef(new Set()); // Track images currently being loaded
+            const preloadedImagesRef = useRef(preloadedImages); // Ref to access latest preloaded images
+
+            // Update ref when preloadedImages changes
+            useEffect(() => {
+                preloadedImagesRef.current = preloadedImages;
+            }, [preloadedImages]);
 
             // Load folders on mount
             useEffect(() => {
                 loadFolders();
             }, []);
 
-            // Auto-play functionality
-            useEffect(() => {
-                if (playing && records.length > 0) {
-                    const interval = setInterval(() => {
-                        setCurrentIndex(prev => {
-                            if (prev >= records.length - 1) {
-                                setPlaying(false);
-                                return prev;
-                            }
-                            return prev + 1;
-                        });
-                    }, 100 / playbackSpeed);
-                    return () => clearInterval(interval);
-                }
-            }, [playing, records.length, playbackSpeed]);
+            // [Removed old auto-play code - replaced with new playback control below]
 
             const loadFolders = async () => {
                 try {
@@ -660,84 +652,150 @@
                 updateTimelineMarker();
             }, [currentIndex]);
 
-            // Playback control - simulates continuous button press
+            // Playback control - only advance when images are preloaded
             useEffect(() => {
                 let interval;
                 if (playing && records.length > 0) {
                     // Calculate interval based on speed
-                    // For high speeds, use shorter intervals to maintain smooth playback
-                    const baseInterval = playbackSpeed <= 1 ? 1000 / playbackSpeed :
-                                       playbackSpeed <= 2 ? 100 :
-                                       playbackSpeed <= 5 ? 80 :
-                                       playbackSpeed <= 10 ? 60 : 40;
+                    // Target ~30fps for normal playback
+                    const baseInterval = playbackSpeed === 0.5 ? 66 :  // 0.5x: 15fps (slow motion)
+                                       playbackSpeed < 1 ? 1000 / (playbackSpeed * 30) :  // Other slow speeds
+                                       playbackSpeed === 1 ? 33 :  // Normal speed: ~30fps
+                                       playbackSpeed <= 2 ? 33 :   // 2x: 30fps (will skip frames)
+                                       playbackSpeed <= 5 ? 50 :   // 5x: 20fps
+                                       playbackSpeed <= 10 ? 60 : 80;  // 10x+: 16-12fps
 
                     interval = setInterval(() => {
-                        // Use step functions directly - same as button press
-                        if (playDirection > 0) {
-                            // Check if we would go out of bounds
-                            setCurrentIndex(prev => {
-                                const skipAmount = Math.max(1, Math.floor(playbackSpeed));
-                                const next = prev + skipAmount;
-                                if (next >= records.length) {
-                                    setPlaying(false);
-                                    return records.length - 1;
+                        setCurrentIndex(prev => {
+                            const skipAmount = Math.max(1, Math.floor(Number(playbackSpeed)));
+                            const next = prev + (skipAmount * playDirection);
+
+                            // Check bounds
+                            if (playDirection > 0 && next >= records.length) {
+                                setPlaying(false);
+                                return records.length - 1;
+                            }
+                            if (playDirection < 0 && next < 0) {
+                                setPlaying(false);
+                                return 0;
+                            }
+
+                            // Check if next frame's images are preloaded
+                            if (next >= 0 && next < records.length) {
+                                const nextRecord = records[next];
+                                const imageKeys = Object.keys(nextRecord).filter(key => key.endsWith('/image_array'));
+
+                                // Check if all images for next frame are preloaded
+                                const allImagesLoaded = imageKeys.every(key => {
+                                    const imageUrl = `${API_BASE}/api/image/${nextRecord[key]}`;
+                                    return preloadedImagesRef.current.has(imageUrl);
+                                });
+
+                                if (!allImagesLoaded) {
+                                    // Images not ready, stay at current frame
+                                    return prev;
                                 }
-                                return next;
-                            });
-                        } else {
-                            setCurrentIndex(prev => {
-                                const skipAmount = Math.max(1, Math.floor(playbackSpeed));
-                                const next = prev - skipAmount;
-                                if (next < 0) {
-                                    setPlaying(false);
-                                    return 0;
-                                }
-                                return next;
-                            });
-                        }
+                            }
+
+                            return next;
+                        });
                     }, baseInterval);
                 }
                 return () => clearInterval(interval);
-            }, [playing, playbackSpeed, playDirection, records.length]);
+            }, [playing, playbackSpeed, playDirection, records.length, records]);
 
             // Preload images aggressively for smooth playback
             useEffect(() => {
-                if (records.length > 0) {
-                    const skipAmount = Math.max(1, Math.floor(playbackSpeed));
-                    // Always preload ahead, more aggressively when playing
-                    const preloadCount = playing
-                        ? (playbackSpeed >= 20 ? 40 : playbackSpeed >= 10 ? 35 : playbackSpeed >= 5 ? 30 : 20)
-                        : 10; // Even when not playing, preload a few frames ahead
+                if (records.length === 0) {
+                    return;
+                }
 
-                    // Preload current and future frames
-                    for (let i = 0; i <= preloadCount; i++) {
-                        const nextIndex = currentIndex + (i * skipAmount * playDirection);
-                        if (nextIndex >= 0 && nextIndex < records.length) {
-                            const record = records[nextIndex];
-                            const imageKeys = Object.keys(record).filter(key => key.endsWith('/image_array'));
-
-                            imageKeys.forEach(key => {
-                                const imageUrl = `${API_BASE}/api/image/${record[key]}`;
-                                // Check if already loaded or currently loading
-                                if (!preloadedImages.has(imageUrl) && !preloadingImages.current.has(imageUrl)) {
-                                    preloadingImages.current.add(imageUrl);
-                                    const img = new Image();
-                                    img.onload = () => {
-                                        setPreloadedImages(prev => {
-                                            const newMap = new Map(prev);
-                                            newMap.set(imageUrl, img);
-                                            return newMap;
-                                        });
-                                        preloadingImages.current.delete(imageUrl);
-                                    };
-                                    img.onerror = () => {
-                                        preloadingImages.current.delete(imageUrl);
-                                    };
-                                    img.src = imageUrl; // Set src after defining handlers
-                                }
-                            });
-                        }
+                // When not playing, only preload current frame
+                if (!playing) {
+                    const record = records[currentIndex];
+                    if (record) {
+                        const imageKeys = Object.keys(record).filter(key => key.endsWith('/image_array'));
+                        imageKeys.forEach(key => {
+                            const imageUrl = `${API_BASE}/api/image/${record[key]}`;
+                            if (!preloadedImages.has(imageUrl) && !preloadingImages.current.has(imageUrl)) {
+                                preloadingImages.current.add(imageUrl);
+                                const img = new Image();
+                                img.onload = () => {
+                                    setPreloadedImages(prev => {
+                                        const newMap = new Map(prev);
+                                        newMap.set(imageUrl, img);
+                                        return newMap;
+                                    });
+                                    preloadingImages.current.delete(imageUrl);
+                                };
+                                img.onerror = () => {
+                                    preloadingImages.current.delete(imageUrl);
+                                };
+                                img.src = imageUrl;
+                            }
+                        });
                     }
+                    return;
+                }
+
+                const skipAmount = Math.max(1, Math.floor(Number(playbackSpeed)));
+                // Preload many frames ahead to ensure images are ready
+                // For 1-4x speeds, preload fewer frames since we're not skipping
+                const preloadCount = playbackSpeed >= 20 ? 60 :
+                                   playbackSpeed >= 10 ? 50 :
+                                   playbackSpeed >= 5 ? 40 :
+                                   playbackSpeed >= 2 ? 20 : 10;  // 1-2x: preload 10-20 frames ahead
+
+                // Debug log to verify correct skipping (only for high speeds)
+                if (playbackSpeed >= 10) {
+                    console.log(`[Preload] Speed: ${playbackSpeed}x, Skip: ${skipAmount}, Current: ${currentIndex}`);
+                }
+
+                // Limit concurrent image loading to avoid overwhelming the browser
+                // Higher limit for better performance
+                const maxConcurrentLoads = 50;
+                let loadCount = 0;
+                const preloadIndexes = [];
+
+                // Preload current and future frames
+                for (let i = 0; i <= preloadCount && loadCount < maxConcurrentLoads; i++) {
+                    const nextIndex = currentIndex + (i * skipAmount * playDirection);
+                    preloadIndexes.push(nextIndex);
+                    if (nextIndex >= 0 && nextIndex < records.length) {
+                        const record = records[nextIndex];
+                        const imageKeys = Object.keys(record).filter(key => key.endsWith('/image_array'));
+
+                        imageKeys.forEach(key => {
+                            if (loadCount >= maxConcurrentLoads) return;
+
+                            const imageUrl = `${API_BASE}/api/image/${record[key]}`;
+                            // Check if already loaded or currently loading
+                            if (!preloadedImages.has(imageUrl) && !preloadingImages.current.has(imageUrl)) {
+                                preloadingImages.current.add(imageUrl);
+                                loadCount++;
+
+                                const img = new Image();
+                                img.onload = () => {
+                                    setPreloadedImages(prev => {
+                                        const newMap = new Map(prev);
+                                        newMap.set(imageUrl, img);
+                                        return newMap;
+                                    });
+                                    preloadingImages.current.delete(imageUrl);
+                                };
+                                img.onerror = () => {
+                                    preloadingImages.current.delete(imageUrl);
+                                };
+                                img.src = imageUrl; // Set src after defining handlers
+                            }
+                        });
+                    }
+                }
+
+                // Debug log to show which indexes are being preloaded (only for high speeds)
+                if (playbackSpeed >= 10) {
+                    const validIndexes = preloadIndexes.filter(idx => idx >= 0 && idx < records.length);
+                    console.log(`[Preload] Indexes: [${validIndexes.slice(0, 10).join(', ')}${validIndexes.length > 10 ? '...' : ''}] (${validIndexes.length} total)`);
                 }
             }, [currentIndex, playing, playbackSpeed, playDirection, records]);
 
@@ -926,13 +984,6 @@
                                                 ⏪
                                             </button>
                                             <button
-                                                onClick={() => setPlaying(false)}
-                                                className="px-2 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700"
-                                                title="Stop"
-                                            >
-                                                ⏹
-                                            </button>
-                                            <button
                                                 onClick={playForward}
                                                 className={`px-2 py-1 rounded text-sm ${playing && playDirection > 0 ? 'bg-red-500 text-white' : 'bg-blue-500 text-white hover:bg-blue-600'}`}
                                                 title="Play Forward"
@@ -995,17 +1046,23 @@
                                                 {imageKeys.map(key => {
                                                     const imageUrl = `${API_BASE}/api/image/${currentRecord[key]}`;
                                                     const preloadedImg = preloadedImages.get(imageUrl);
+                                                    // Only strictly require preloaded images during very high-speed playback
+                                                    const requirePreload = playing && playbackSpeed >= 10;
 
                                                     return (
                                                     <div key={key} className="flex flex-col relative">
                                                         <p className="text-xs text-gray-600 mb-1">{key}</p>
-                                                        <div className="relative">
-                                                            <img
-                                                                src={preloadedImg ? preloadedImg.src : imageUrl}
-                                                                alt={key}
-                                                                className="w-full h-full object-contain rounded"
-                                                                style={{ maxHeight: '150px' }}
-                                                            />
+                                                        <div className="relative" style={{ minHeight: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f3f4f6' }}>
+                                                            {preloadedImg || !requirePreload ? (
+                                                                <img
+                                                                    src={preloadedImg ? preloadedImg.src : imageUrl}
+                                                                    alt={key}
+                                                                    className="w-full h-full object-contain rounded"
+                                                                    style={{ maxHeight: '150px' }}
+                                                                />
+                                                            ) : (
+                                                                <div className="text-xs text-gray-400">Loading...</div>
+                                                            )}
                                                             {currentRecord._is_deleted && (
                                                                 <>
                                                                     <div className="deleted-overlay"></div>
