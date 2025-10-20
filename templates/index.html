@@ -360,6 +360,7 @@
             const lastChartUpdate = useRef(0);
             const preloadingImages = useRef(new Set()); // Track images currently being loaded
             const preloadedImagesRef = useRef(preloadedImages); // Ref to access latest preloaded images
+            const histogramInstance = useRef(null);
 
             // Update ref when preloadedImages changes
             useEffect(() => {
@@ -375,7 +376,8 @@
 
             const loadFolders = async () => {
                 try {
-                    const response = await fetch(`${API_BASE}/api/folders`);
+                    // Load from current directory to find data* folders
+                    const response = await fetch(`${API_BASE}/api/folders?path=.`);
                     const data = await response.json();
                     setFolders(data.folders || []);
                 } catch (error) {
@@ -642,10 +644,122 @@
                 });
             };
 
+            // Create combined histogram for user/angle and user/throttle
+            const createHistograms = () => {
+                if (records.length === 0) return;
+
+                const angleData = records.map(r => r['user/angle']).filter(v => v !== undefined && v !== null);
+                const throttleData = records.map(r => r['user/throttle']).filter(v => v !== undefined && v !== null);
+
+                // Fixed range from -1 to 1
+                const min = -1;
+                const max = 1;
+                const bins = 20;
+                const binWidth = (max - min) / bins;
+
+                // Create all bin labels from -1 to 1
+                const labels = [];
+                for (let i = 0; i < bins; i++) {
+                    const binStart = min + i * binWidth;
+                    labels.push(binStart.toFixed(2));
+                }
+
+                const createHistogramData = (data) => {
+                    const counts = new Array(bins).fill(0);
+
+                    data.forEach(value => {
+                        // Only count values within -1 to 1 range
+                        if (value >= min && value <= max) {
+                            // Find which bin this value belongs to
+                            const binIndex = Math.floor((value - min) / binWidth);
+                            // Handle edge case where value === max
+                            const safeBinIndex = Math.min(binIndex, bins - 1);
+                            counts[safeBinIndex]++;
+                        }
+                    });
+
+                    return counts;
+                };
+
+                // Create histogram data for both
+                const angleCounts = createHistogramData(angleData);
+                const throttleCounts = createHistogramData(throttleData);
+
+                // Create combined histogram
+                const canvas = document.getElementById('histogram');
+                if (canvas) {
+                    if (histogramInstance.current) {
+                        histogramInstance.current.destroy();
+                    }
+                    histogramInstance.current = new Chart(canvas, {
+                        type: 'bar',
+                        data: {
+                            labels: labels,
+                            datasets: [
+                                {
+                                    label: 'user/angle',
+                                    data: angleCounts,
+                                    backgroundColor: 'rgba(59, 130, 246, 0.5)',
+                                    borderColor: 'rgba(59, 130, 246, 1)',
+                                    borderWidth: 1
+                                },
+                                {
+                                    label: 'user/throttle',
+                                    data: throttleCounts,
+                                    backgroundColor: 'rgba(16, 185, 129, 0.5)',
+                                    borderColor: 'rgba(16, 185, 129, 1)',
+                                    borderWidth: 1
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    display: true,
+                                    position: 'top',
+                                    labels: { font: { size: 10 } }
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        title: function(context) {
+                                            const binStart = parseFloat(context[0].label);
+                                            const binEnd = binStart + binWidth;
+                                            return `Range: ${binStart.toFixed(2)} to ${binEnd.toFixed(2)}`;
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    title: { display: true, text: 'Value (-1 to 1)', font: { size: 10 } },
+                                    ticks: {
+                                        autoSkip: true,
+                                        maxTicksLimit: 11,
+                                        font: { size: 9 }
+                                    }
+                                },
+                                y: {
+                                    title: { display: true, text: 'Count', font: { size: 10 } },
+                                    ticks: { font: { size: 9 } },
+                                    beginAtZero: true
+                                }
+                            }
+                        }
+                    });
+                }
+            };
+
             // Create chart when data or visible keys change
             useEffect(() => {
                 createChart();
             }, [records, visibleKeys, deletedIndexes, zoomRange]);
+
+            // Create histograms when records change
+            useEffect(() => {
+                createHistograms();
+            }, [records]);
 
             // Update only timeline marker when index changes
             useEffect(() => {
@@ -917,8 +1031,6 @@
             return (
                 <div className="min-h-screen bg-gray-100">
                     <div className="p-2">
-                        <h1 className="text-2xl font-bold mb-4">Data Viewer</h1>
-                        
                         {/* Folder Selection */}
                         {!selectedFolder && (
                             <div className="bg-white rounded-lg shadow p-6 mb-6">
@@ -971,28 +1083,28 @@
                                         <div className="compact-controls">
                                             <button
                                                 onClick={stepBackward}
-                                                className="px-2 py-1 bg-gray-500 text-white rounded text-sm hover:bg-gray-600"
+                                                className="px-3 py-1.5 bg-gray-500 text-white rounded text-sm hover:bg-gray-600 font-bold"
                                                 title="Step Backward"
                                             >
                                                 ⏮
                                             </button>
                                             <button
                                                 onClick={playReverse}
-                                                className={`px-2 py-1 rounded text-sm ${playing && playDirection < 0 ? 'bg-red-500 text-white' : 'bg-orange-500 text-white hover:bg-orange-600'}`}
+                                                className={`px-3 py-1.5 rounded text-sm font-bold ${playing && playDirection < 0 ? 'bg-red-500 text-white' : 'bg-blue-500 text-white hover:bg-blue-600'}`}
                                                 title="Play Reverse"
                                             >
                                                 ⏪
                                             </button>
                                             <button
                                                 onClick={playForward}
-                                                className={`px-2 py-1 rounded text-sm ${playing && playDirection > 0 ? 'bg-red-500 text-white' : 'bg-blue-500 text-white hover:bg-blue-600'}`}
+                                                className={`px-3 py-1.5 rounded text-sm font-bold ${playing && playDirection > 0 ? 'bg-red-500 text-white' : 'bg-blue-500 text-white hover:bg-blue-600'}`}
                                                 title="Play Forward"
                                             >
-                                                ▶
+                                                ⏩
                                             </button>
                                             <button
                                                 onClick={stepForward}
-                                                className="px-2 py-1 bg-gray-500 text-white rounded text-sm hover:bg-gray-600"
+                                                className="px-3 py-1.5 bg-gray-500 text-white rounded text-sm hover:bg-gray-600 font-bold"
                                                 title="Step Forward"
                                             >
                                                 ⏭
@@ -1019,8 +1131,8 @@
                                             />
                                             <span className="text-sm">{currentIndex} / {records.length - 1}</span>
                                             {playing && (
-                                                <span className="text-xs text-blue-600">
-                                                    {playDirection > 0 ? '▶' : '⏪'} {playbackSpeed}x
+                                                <span className="text-xs text-blue-600 font-bold">
+                                                    {playDirection > 0 ? '▶▶' : '◀◀'} {playbackSpeed}x
                                                 </span>
                                             )}
                                         </div>
@@ -1089,11 +1201,11 @@
                                             <div className="bg-white rounded-lg shadow p-3" style={{ height: 'calc(100% - 8px)' }}>
                                             <div className="flex justify-between items-center mb-2">
                                                 <h3 className="text-sm font-semibold">Timeline</h3>
-                                                <details className="relative">
+                                                <details className="relative" style={{ zIndex: 200 }}>
                                                     <summary className="cursor-pointer text-sm text-blue-600 hover:text-blue-800">
                                                         Select Data ({Object.values(visibleKeys).filter(v => v).length} active)
                                                     </summary>
-                                                    <div className="absolute right-0 mt-1 w-64 bg-white border rounded-lg shadow-lg p-2 z-10 max-h-64 overflow-y-auto">
+                                                    <div className="absolute right-0 mt-1 w-64 bg-white border rounded-lg shadow-lg p-2 z-[200] max-h-[calc(100vh-100px)] overflow-y-auto" style={{ backgroundColor: 'white', pointerEvents: 'auto' }}>
                                                         {/* Control buttons */}
                                                         <div className="flex gap-2 mb-2 pb-2 border-b">
                                                             <button
@@ -1183,11 +1295,20 @@
                                         </ResizablePanel>
 
                                         {/* Statistics and Current Record Data - Full Height */}
-                                        <div className="flex gap-2 flex-1">
+                                        <div className="flex gap-2" style={{ flex: 1, minHeight: 0 }}>
                                             {/* Statistics Panel - 70% width */}
-                                            <div className="bg-white rounded-lg shadow p-3 overflow-hidden" style={{ flex: '7' }}>
+                                            <div className="bg-white rounded-lg shadow p-3 overflow-hidden flex flex-col" style={{ flex: '7', minHeight: 0 }}>
                                                 <h3 className="text-sm font-semibold mb-2">Statistics</h3>
-                                                <div className="overflow-y-auto" style={{ height: 'calc(100% - 30px)' }}>
+                                                <div className="flex gap-3" style={{ flex: 1, minHeight: 0 }}>
+                                                    {/* Histogram on the left */}
+                                                    <div className="flex flex-col" style={{ width: '300px', flexShrink: 0 }}>
+                                                        <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+                                                            <canvas id="histogram"></canvas>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Statistics table on the right */}
+                                                    <div className="overflow-y-auto" style={{ flex: 1, minHeight: 0 }}>
                                                     <table className="w-full text-xs">
                                                         <thead>
                                                             <tr className="bg-gray-50">
@@ -1197,8 +1318,6 @@
                                                                 <th className="py-1 px-1 text-center">Min</th>
                                                                 <th className="py-1 px-1 text-center">Max</th>
                                                                 <th className="py-1 px-1 text-center">Median</th>
-                                                                <th className="py-1 px-1 text-center">Q1</th>
-                                                                <th className="py-1 px-1 text-center">Q3</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
@@ -1220,23 +1339,18 @@
                                                                     <td className="py-1 px-1 text-center text-xs">
                                                                         {stats.median?.toFixed(3) || 'N/A'}
                                                                     </td>
-                                                                    <td className="py-1 px-1 text-center text-xs">
-                                                                        {stats.q1?.toFixed(3) || 'N/A'}
-                                                                    </td>
-                                                                    <td className="py-1 px-1 text-center text-xs">
-                                                                        {stats.q3?.toFixed(3) || 'N/A'}
-                                                                    </td>
                                                                 </tr>
                                                             ))}
                                                         </tbody>
                                                     </table>
+                                                    </div>
                                                 </div>
                                             </div>
 
                                             {/* Current Record Data - 30% width */}
-                                            <div className="bg-white rounded-lg shadow p-3 overflow-hidden" style={{ flex: '3' }}>
+                                            <div className="bg-white rounded-lg shadow p-3 overflow-hidden flex flex-col" style={{ flex: '3', minHeight: 0 }}>
                                                 <h3 className="text-sm font-semibold mb-2">Current Record Data</h3>
-                                                <div className="overflow-y-auto" style={{ height: 'calc(100% - 30px)' }}>
+                                                <div className="overflow-y-auto" style={{ flex: 1, minHeight: 0 }}>
                                                     <table className="w-full text-xs">
                                                         <tbody>
                                                             {Object.entries(currentRecord)

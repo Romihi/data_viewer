@@ -78,7 +78,7 @@ def get_folders():
         folders = []
         for item in os.listdir(base_path):
             item_path = os.path.join(base_path, item)
-            if os.path.isdir(item_path):
+            if os.path.isdir(item_path) and item.startswith('data'):
                 # Check if it contains data subfolder with catalog files
                 data_path = os.path.join(item_path, 'data')
                 if os.path.exists(data_path):
