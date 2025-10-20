@@ -1,77 +1,78 @@
 # Donkeycar Data Viewer
 
-A comprehensive web-based viewer application for visualizing and managing Donkeycar training data with advanced timeline analysis, statistics, and data curation tools.
+Donkeycarの学習データを可視化・管理するための包括的なWebベースビューアアプリケーションです。高度なタイムライン分析、統計情報、データキュレーションツールを搭載しています。
 
 ![Donkeycar Data Viewer](https://img.shields.io/badge/Python-3.7+-blue.svg) ![Flask](https://img.shields.io/badge/Flask-2.0+-green.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-## 📋 Table of Contents
+## 📋 目次
 
-- [Features](#features)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [User Guide](#user-guide)
-- [Data Structure](#data-structure)
-- [API Reference](#api-reference)
-- [Architecture](#architecture)
-- [Troubleshooting](#troubleshooting)
-- [Customization](#customization)
+- [機能](#-機能)
+- [インストール](#-インストール)
+- [クイックスタート](#-クイックスタート)
+- [ユーザーガイド](#-ユーザーガイド)
+- [データ構造](#-データ構造)
+- [APIリファレンス](#-apiリファレンス)
+- [アーキテクチャ](#-アーキテクチャ)
+- [トラブルシューティング](#-トラブルシューティング)
+- [カスタマイズ](#-カスタマイズ)
 
-## ✨ Features
+## ✨ 機能
 
-### Data Management
-- **Folder Browser**: Intuitive file system navigation to select Donkeycar data folders
-- **Session Filtering**: Filter data by recording session
-- **Delete Index Management**: Mark and manage deleted data indexes with range selection
-- **Auto-detection**: Automatically detects folders containing Donkeycar catalog files
+### データ管理
+- **フォルダブラウザ**: 直感的なファイルシステムナビゲーションでDonkeycarデータフォルダを選択
+- **セッションフィルタリング**: 記録セッション別にデータをフィルタリング
+- **削除インデックス管理**: 範囲選択で削除データインデックスをマーク・管理
+- **自動検出**: Donkeycarカタログファイルを含むフォルダを自動検出
+- **状態の自動保存**: パネルサイズ、フォルダ、選択項目を保存し次回アクセス時に復元
 
-### Visualization
-- **Timeline Chart**: Interactive time-series visualization with Chart.js
-  - Zoom and pan support
-  - Visual markers for deleted indexes
-  - Multi-key data plotting
-- **Histogram**: Real-time histogram of current data distribution
-- **Multi-Image Display**: View multiple camera feeds and sensor images simultaneously
-  - Toggle visibility for individual image streams
-  - Automatic image preloading for smooth playback
-  - Responsive layout within panel
+### 可視化
+- **タイムラインチャート**: Chart.jsによるインタラクティブな時系列可視化
+  - ズーム・パン対応
+  - 削除インデックスの視覚的マーカー
+  - 複数キーのデータプロット
+- **ヒストグラム**: 現在のデータ分布のリアルタイムヒストグラム
+- **マルチ画像表示**: 複数のカメラフィードとセンサー画像を同時表示
+  - 個別の画像ストリームの表示/非表示切り替え
+  - スムーズな再生のための自動画像プリロード
+  - パネル内でのレスポンシブレイアウト
 
-### Data Processing
-- **Normalization**: Normalize data to -1~1 range for comparison
-- **Smoothing Algorithms**:
-  - Moving Average (MA): Window sizes 3, 5, 10, 20
-  - Exponential Moving Average (EMA): Alpha values 0.1, 0.3, 0.5
-  - Interactive tooltips with mathematical formulas
+### データ処理
+- **正規化**: データを-1〜1の範囲に正規化して比較
+- **平滑化アルゴリズム**:
+  - 移動平均（MA）: ウィンドウサイズ 3, 5, 10, 20
+  - 指数移動平均（EMA）: αパラメータ 0.1, 0.3, 0.5
+  - 数式付きのインタラクティブツールチップ
 
-### Playback Controls
-- **Forward/Reverse Playback**: Full bidirectional playback support
-- **Step Controls**: Frame-by-frame navigation (⏮ ⏭)
-- **Variable Speed**: 1x to 10x playback speed
-- **Index Slider**: Direct navigation to any data point
+### 再生コントロール
+- **順方向/逆方向再生**: 完全な双方向再生サポート
+- **ステップコントロール**: フレーム単位のナビゲーション（⏮ ⏭）
+- **可変速度**: 1倍速〜10倍速の再生速度
+- **インデックススライダー**: 任意のデータポイントへ直接移動
 
-### Statistics Panel
-- **Real-time Statistics**: Automatic calculation for all numerical keys
-  - Count, Mean, Standard Deviation
-  - Min, Max, Median
-  - Q1, Q3 (Quartiles)
-- **Filterable by Session**: Statistics update based on selected session
+### 統計パネル
+- **リアルタイム統計**: すべての数値キーの自動計算
+  - カウント、平均、標準偏差
+  - 最小値、最大値、中央値
+  - Q1、Q3（四分位数）
+- **セッション別フィルタリング**: 選択したセッションに基づいて統計を更新
 
 ### UI/UX
-- **Eye-friendly Design**: Warm beige color palette to reduce eye strain
-- **Resizable Panels**: Adjustable panel heights for customized workspace
-- **Responsive Layout**: Adapts to different screen sizes
-- **Current Record View**: Displays all data fields for current index
+- **目に優しいデザイン**: 温かみのあるベージュ系カラーパレットで目の疲れを軽減
+- **リサイズ可能なパネル**: カスタマイズ可能なワークスペースのためのパネル高さ調整
+- **レスポンシブレイアウト**: 異なる画面サイズに適応
+- **現在のレコード表示**: 現在のインデックスのすべてのデータフィールドを表示
 
-## 🚀 Installation
+## 🚀 インストール
 
-### Prerequisites
+### 必要要件
 
-- Python 3.7 or higher
-- pip (Python package manager)
-- Modern web browser (Chrome, Firefox, Edge, Safari)
+- Python 3.7以上
+- pip（Pythonパッケージマネージャー）
+- モダンWebブラウザ（Chrome、Firefox、Edge、Safari）
 
-### Dependencies
+### 依存関係
 
-Install required Python packages:
+必要なPythonパッケージをインストール：
 
 ```bash
 pip install -r requirements.txt
@@ -84,150 +85,161 @@ flask-cors>=3.0.0
 numpy>=1.19.0
 ```
 
-## 🎯 Quick Start
+## 🎯 クイックスタート
 
-### 1. Start the Application
+### 1. アプリケーションの起動
 
 ```bash
 python app.py
 ```
 
-Or use the provided shell script (Linux/Mac):
+または、提供されているシェルスクリプトを使用（Linux/Mac）：
 ```bash
 chmod +x run.sh
 ./run.sh
 ```
 
-### 2. Access the Web Interface
+### 2. Webインターフェースへのアクセス
 
-**Local access**:
+**ローカルアクセス**:
 ```
 http://localhost:5000
 ```
 
-**Remote access** (from another device on the same network):
+**リモートアクセス**（同じネットワーク上の別デバイスから）:
 ```
-http://[your-ip-address]:5000
+http://[あなたのIPアドレス]:5000
 ```
 
-For Raspberry Pi users:
+Raspberry Piユーザー向け：
 ```bash
-# Find your IP address
+# IPアドレスを確認
 hostname -I
 ```
 
-### 3. Load Data
+### 3. データの読み込み
 
-1. Click **"Select Data Folder"** button
-2. Navigate to your Donkeycar data folder (contains `data/` subdirectory)
-3. Click **"Load Data"** to load the selected folder
-4. Data will be loaded and displayed across all panels
+1. **"Select Data Folder"** ボタンをクリック
+2. Donkeycarデータフォルダ（`data/` サブディレクトリを含む）に移動
+3. **"Load Data"** をクリックして選択したフォルダを読み込み
+4. すべてのパネルにデータが読み込まれ表示されます
 
-## 📖 User Guide
+## 📖 ユーザーガイド
 
-### Panel Layout
+### パネルレイアウト
 
-The application features four resizable panels:
+アプリケーションは4つのリサイズ可能なパネルで構成されています：
 
-1. **Images Panel** (Top): Camera and sensor image display
-2. **Timeline Panel**: Time-series chart visualization
-3. **Statistics Panel**: Numerical data statistics
-4. **Histogram Panel** (Bottom): Data distribution visualization
+1. **Imagesパネル**（上部）: カメラとセンサー画像の表示
+2. **Timelineパネル**: 時系列チャートの可視化
+3. **Statisticsパネル**: 数値データの統計情報
+4. **Histogramパネル**（下部）: データ分布の可視化
 
-**Resizing Panels**: Drag the horizontal bars between panels to adjust heights.
+**パネルのリサイズ**: パネル間の水平バーをドラッグして高さを調整します。
 
-### Timeline Controls
+### タイムラインコントロール
 
-**Data Selection**:
-- Use the dropdown to select which data key to visualize
-- Multiple numerical keys available (e.g., `user/throttle`, `user/angle`)
+**データ選択**:
+- ドロップダウンを使用して可視化するデータキーを選択
+- 複数の数値キーが利用可能（例: `user/throttle`、`user/angle`）
 
-**Normalization**:
-- Click **"正規化"** button to normalize data to -1~1 range
-- Useful for comparing different scale data on same chart
+**正規化**:
+- **"正規化"** ボタンをクリックしてデータを-1〜1の範囲に正規化
+- 異なるスケールのデータを同じチャート上で比較するのに便利
 
-**Smoothing**:
-- Select smoothing algorithm from dropdown:
-  - **なし** (None): Raw data
-  - **MA-3, MA-5, MA-10, MA-20**: Moving Average with window size
-  - **EMA-0.1, EMA-0.3, EMA-0.5**: Exponential Moving Average with alpha
-- Hover over options to see mathematical formulas
+**平滑化**:
+- ドロップダウンから平滑化アルゴリズムを選択：
+  - **なし**: 生データ
+  - **MA-3, MA-5, MA-10, MA-20**: ウィンドウサイズ付き移動平均
+  - **EMA-0.1, EMA-0.3, EMA-0.5**: αパラメータ付き指数移動平均
+- オプションにマウスオーバーすると数式が表示されます
 
-**Chart Interaction**:
-- **Zoom**: Scroll wheel or pinch gesture
-- **Pan**: Click and drag
-- **Reset Zoom**: Double-click chart
+**チャートの操作**:
+- **ズーム**: スクロールホイールまたはピンチジェスチャー
+- **パン**: クリック＆ドラッグ
+- **ズームリセット**: チャートをダブルクリック
 
-### Playback Controls
+### 再生コントロール
 
-Located below the Timeline panel:
+Timelineパネルの下に配置：
 
-- **⏮ Step Backward**: Go to previous frame
-- **⏪ Play Reverse**: Play backward at selected speed
-- **⏩ Play Forward**: Play forward at selected speed
-- **⏭ Step Forward**: Go to next frame
-- **Speed Selector**: 1x, 2x, 5x, 10x playback speed
+- **⏮ Step Backward**: 前のフレームへ移動
+- **⏪ Play Reverse**: 選択した速度で逆再生
+- **⏩ Play Forward**: 選択した速度で順再生
+- **⏭ Step Forward**: 次のフレームへ移動
+- **Speed Selector**: 1倍、2倍、5倍、10倍の再生速度
 
-**Index Slider**: Drag to navigate directly to any data point.
+**インデックススライダー**: ドラッグして任意のデータポイントへ直接移動。
 
-### Delete Index Management
+### 削除インデックス管理
 
-Mark ranges of data for deletion (useful for removing bad training data):
+データの範囲を削除マーク（不良な学習データの除去に便利）：
 
-1. **Set Start Index**:
-   - Enter value manually or click **"現在"** button to use current index
-2. **Set End Index**:
-   - Enter value manually or click **"現在"** button to use current index
-3. **Apply Deletion**:
-   - Click **"削除設定"** to mark range as deleted
-4. **Clear Deletion**:
-   - Click **"削除クリア"** to unmark range
+1. **開始インデックスの設定**:
+   - 手動で値を入力するか、**"現在"** ボタンをクリックして現在のインデックスを使用
+2. **終了インデックスの設定**:
+   - 手動で値を入力するか、**"現在"** ボタンをクリックして現在のインデックスを使用
+3. **削除の適用**:
+   - **"削除設定"** をクリックして範囲を削除としてマーク
+4. **削除のクリア**:
+   - **"削除クリア"** をクリックして範囲のマークを解除
 
-**Notes**:
-- Default range is 0 to maximum index
-- Deleted indexes are saved to `manifest.json`
-- Deleted ranges shown as red boxes on Timeline chart
-- Deleted data is marked but not physically removed
+**注意事項**:
+- デフォルト範囲は0から最大インデックス
+- 削除インデックスは `manifest.json` に保存されます
+- 削除範囲はTimelineチャート上に赤いボックスで表示されます
+- 削除されたデータはマークされますが、物理的には削除されません
 
-### Image Display Controls
+### 画像表示コントロール
 
-**Show/Hide Images**:
-- Click image key names to toggle visibility
-- **"すべて"** button: Toggle all images on/off
-- Images automatically scale to fit panel
+**画像の表示/非表示**:
+- 画像キー名をクリックして表示/非表示を切り替え
+- **"すべて"** ボタン: すべての画像のオン/オフを切り替え
+- 画像は自動的にパネルに合わせてスケーリングされます
 
-### Session Filtering
+### セッションフィルタリング
 
-If your data contains multiple recording sessions:
-- Use **Session** dropdown to filter by session ID
-- All panels update to show only selected session data
+データに複数の記録セッションが含まれている場合：
+- **Session** ドロップダウンを使用してセッションIDでフィルタリング
+- すべてのパネルが選択したセッションのデータのみを表示するように更新されます
 
-## 📁 Data Structure
+### 状態の自動保存と復元
 
-### Expected Folder Structure
+次回アクセス時に以下の設定が自動的に復元されます：
+
+- **パネルサイズ**: Imagesパネルの幅、Timelineパネルの高さ
+- **読み込んだフォルダ**: 前回読み込んだフォルダを自動的に読み込み
+- **Select Data選択**: Timelineで選択したデータキーの表示状態
+- **Select Images選択**: 画像の表示/非表示設定
+
+設定はブラウザのlocalStorageに保存されます。
+
+## 📁 データ構造
+
+### 期待されるフォルダ構造
 
 ```
 data_folder/
 ├── data/
-│   ├── catalog_0.catalog       # Data records (JSON lines)
+│   ├── catalog_0.catalog       # データレコード（JSON行）
 │   ├── catalog_1.catalog
 │   ├── catalog_N.catalog
-│   ├── manifest.json           # Metadata and configuration
+│   ├── manifest.json           # メタデータと設定
 │   └── images/
 │       ├── 0_cam_image_array_.jpg
 │       ├── 1_cam_image_array_.jpg
 │       └── ...
 ```
 
-### Manifest File Format
+### マニフェストファイル形式
 
-The `manifest.json` file contains 5 lines:
+`manifest.json` ファイルは5行で構成：
 
-1. **Line 1**: Data keys (JSON array)
-2. **Line 2**: Data types (JSON array)
-3. **Line 3**: Empty line
-4. **Line 4**: Metadata (JSON object)
-5. **Line 5**: Catalog manifest (JSON object)
+1. **1行目**: データキー（JSON配列）
+2. **2行目**: データ型（JSON配列）
+3. **3行目**: 空行
+4. **4行目**: メタデータ（JSONオブジェクト）
+5. **5行目**: カタログマニフェスト（JSONオブジェクト）
    ```json
    {
      "max_len": 1000,
@@ -235,31 +247,31 @@ The `manifest.json` file contains 5 lines:
    }
    ```
 
-### Catalog Files
+### カタログファイル
 
-Each catalog file contains JSON lines with records:
+各カタログファイルはレコードを含むJSON行で構成：
 
 ```json
 {"_index": 0, "_session_id": "session_001", "_timestamp_ms": 1234567890, "user/throttle": 0.5, "user/angle": -0.1, "cam/image_array": "images/0_cam_image_array_.jpg"}
 {"_index": 1, "_session_id": "session_001", "_timestamp_ms": 1234567990, "user/throttle": 0.6, "user/angle": 0.0, "cam/image_array": "images/1_cam_image_array_.jpg"}
 ```
 
-**Special Keys**:
-- `_index`: Local index within catalog (0-999 for max_len=1000)
-- `_absolute_index`: Global index across all catalogs (calculated as `catalog_num * max_len + _index`)
-- `_session_id`: Recording session identifier
-- `_timestamp_ms`: Timestamp in milliseconds
-- `_is_deleted`: Added at runtime to mark deleted records
+**特別なキー**:
+- `_index`: カタログ内のローカルインデックス（max_len=1000の場合0-999）
+- `_absolute_index`: すべてのカタログを通じたグローバルインデックス（`catalog_num * max_len + _index` として計算）
+- `_session_id`: 記録セッション識別子
+- `_timestamp_ms`: ミリ秒単位のタイムスタンプ
+- `_is_deleted`: 実行時に削除されたレコードをマークするために追加
 
-## 🔌 API Reference
+## 🔌 APIリファレンス
 
-### Browse Directory
+### ディレクトリブラウズ
 
 ```http
 GET /api/browse?path=/path/to/directory
 ```
 
-**Response**:
+**レスポンス**:
 ```json
 {
   "current_path": "/path/to/directory",
@@ -274,7 +286,7 @@ GET /api/browse?path=/path/to/directory
 }
 ```
 
-### Load Data
+### データ読み込み
 
 ```http
 POST /api/load_data
@@ -285,7 +297,7 @@ Content-Type: application/json
 }
 ```
 
-**Response**:
+**レスポンス**:
 ```json
 {
   "success": true,
@@ -303,18 +315,18 @@ Content-Type: application/json
 }
 ```
 
-### Get Data Records
+### データレコード取得
 
 ```http
 GET /api/data?start=0&end=100&session=session_001
 ```
 
-**Parameters**:
-- `start`: Start index (default: 0)
-- `end`: End index (optional, default: all)
-- `session`: Session ID filter (optional)
+**パラメータ**:
+- `start`: 開始インデックス（デフォルト: 0）
+- `end`: 終了インデックス（オプション、デフォルト: すべて）
+- `session`: セッションIDフィルタ（オプション）
 
-**Response**:
+**レスポンス**:
 ```json
 {
   "records": [...],
@@ -322,13 +334,13 @@ GET /api/data?start=0&end=100&session=session_001
 }
 ```
 
-### Get Statistics
+### 統計取得
 
 ```http
 GET /api/statistics?key=user/throttle&session=session_001
 ```
 
-**Response**:
+**レスポンス**:
 ```json
 {
   "user/throttle": {
@@ -344,13 +356,13 @@ GET /api/statistics?key=user/throttle&session=session_001
 }
 ```
 
-### Get Timeline Data
+### タイムラインデータ取得
 
 ```http
 GET /api/timeline?key=user/throttle&session=session_001
 ```
 
-**Response**:
+**レスポンス**:
 ```json
 {
   "key": "user/throttle",
@@ -361,7 +373,7 @@ GET /api/timeline?key=user/throttle&session=session_001
 }
 ```
 
-### Update Delete Indexes
+### 削除インデックスの更新
 
 ```http
 POST /api/delete_indexes
@@ -373,7 +385,7 @@ Content-Type: application/json
 }
 ```
 
-**Response**:
+**レスポンス**:
 ```json
 {
   "success": true,
@@ -382,7 +394,7 @@ Content-Type: application/json
 }
 ```
 
-### Clear Delete Indexes
+### 削除インデックスのクリア
 
 ```http
 POST /api/clear_delete_indexes
@@ -394,7 +406,7 @@ Content-Type: application/json
 }
 ```
 
-**Response**:
+**レスポンス**:
 ```json
 {
   "success": true,
@@ -403,172 +415,172 @@ Content-Type: application/json
 }
 ```
 
-### Get Image
+### 画像取得
 
 ```http
 GET /api/image/<image_path>
 ```
 
-Returns JPEG image file.
+JPEG画像ファイルを返します。
 
-## 🏗 Architecture
+## 🏗 アーキテクチャ
 
-### Technology Stack
+### 技術スタック
 
-**Backend**:
-- Flask 2.0+ (Python web framework)
-- Flask-CORS (Cross-origin resource sharing)
-- NumPy (Statistical calculations)
+**バックエンド**:
+- Flask 2.0+（Python Webフレームワーク）
+- Flask-CORS（クロスオリジンリソース共有）
+- NumPy（統計計算）
 
-**Frontend**:
-- React 18 (UI framework, via Babel standalone)
-- Chart.js 4.4 (Timeline and histogram charts)
-- chartjs-plugin-annotation (Deleted index markers)
-- chartjs-plugin-zoom (Interactive zooming)
-- Tailwind CSS (Styling framework)
+**フロントエンド**:
+- React 18（UIフレームワーク、Babel standaloneを使用）
+- Chart.js 4.4（タイムラインとヒストグラムチャート）
+- chartjs-plugin-annotation（削除インデックスマーカー）
+- chartjs-plugin-zoom（インタラクティブズーム）
+- Tailwind CSS（スタイリングフレームワーク）
 
-### File Structure
+### ファイル構造
 
 ```
 data_viewer/
-├── app.py                  # Flask application and API endpoints
-├── data_loader.py          # Data loading and processing logic
-├── requirements.txt        # Python dependencies
-├── run.sh                  # Startup script
+├── app.py                  # FlaskアプリケーションとAPIエンドポイント
+├── data_loader.py          # データ読み込みと処理ロジック
+├── requirements.txt        # Python依存関係
+├── run.sh                  # 起動スクリプト
 ├── templates/
-│   └── index.html         # Single-page React application
-└── README.md              # This file
+│   └── index.html         # シングルページReactアプリケーション
+└── README.md              # このファイル
 ```
 
-### Data Flow
+### データフロー
 
-1. **User selects folder** → Browser sends path to `/api/browse`
-2. **User loads data** → POST to `/api/load_data` → `DonkeycarDataLoader` loads catalogs
-3. **Records loaded** → Stored in memory with indexes mapped
-4. **User navigates** → GET `/api/data` with pagination
-5. **Timeline renders** → GET `/api/timeline` with selected key
-6. **Statistics update** → GET `/api/statistics` for numerical keys
-7. **User marks deletions** → POST `/api/delete_indexes` → Updates `manifest.json` line 5
+1. **ユーザーがフォルダを選択** → ブラウザが `/api/browse` にパスを送信
+2. **ユーザーがデータを読み込み** → `/api/load_data` にPOST → `DonkeycarDataLoader` がカタログを読み込み
+3. **レコードが読み込まれる** → インデックスをマッピングしてメモリに保存
+4. **ユーザーがナビゲート** → ページネーション付きで `/api/data` にGET
+5. **タイムラインをレンダリング** → 選択したキーで `/api/timeline` にGET
+6. **統計を更新** → 数値キーに対して `/api/statistics` にGET
+7. **ユーザーが削除をマーク** → `/api/delete_indexes` にPOST → `manifest.json` の5行目を更新
 
-### Performance Optimizations
+### パフォーマンス最適化
 
-- **Map-based lookups**: O(n) instead of O(n²) for deleted index checks
-- **Zoom range filtering**: Only render annotations in visible chart area
-- **Image preloading**: Preload images ahead of playback position
-- **Pagination**: Load data in chunks to reduce memory usage
-- **Conditional rendering**: Skip image rendering at high playback speeds (>10x)
+- **Mapベースルックアップ**: 削除インデックスチェックでO(n²)ではなくO(n)
+- **ズーム範囲フィルタリング**: 表示可能なチャート領域内のアノテーションのみをレンダリング
+- **画像プリロード**: 再生位置の先の画像をプリロード
+- **ページネーション**: チャンクでデータを読み込みメモリ使用量を削減
+- **条件付きレンダリング**: 高速再生時（10倍超）は画像レンダリングをスキップ
 
-## 🔧 Troubleshooting
+## 🔧 トラブルシューティング
 
-### Port Already in Use
+### ポートが既に使用中
 
-**Error**: `OSError: [Errno 98] Address already in use`
+**エラー**: `OSError: [Errno 98] Address already in use`
 
-**Solution**:
+**解決策**:
 ```bash
-# Find and kill process using port 5000
+# ポート5000を使用しているプロセスを見つけて終了
 lsof -ti:5000 | xargs kill -9
 
-# Or use a different port
-python app.py  # Edit app.py to change port
+# または別のポートを使用
+python app.py  # app.pyを編集してポートを変更
 ```
 
-### CORS Errors
+### CORSエラー
 
-**Error**: `Access to fetch at 'http://...' from origin 'http://...' has been blocked by CORS policy`
+**エラー**: `Access to fetch at 'http://...' from origin 'http://...' has been blocked by CORS policy`
 
-**Solution**: Flask-CORS is already configured. Ensure `flask-cors` is installed:
+**解決策**: Flask-CORSは既に設定されています。`flask-cors`がインストールされていることを確認：
 ```bash
 pip install flask-cors
 ```
 
-### Images Not Loading
+### 画像が読み込まれない
 
-**Symptoms**: Timeline and statistics work, but images show as broken
+**症状**: タイムラインと統計は機能するが、画像が壊れて表示される
 
-**Possible Causes**:
-1. Image paths in catalog don't match actual file locations
-2. Images folder missing or in wrong location
-3. File permissions issue
+**考えられる原因**:
+1. カタログ内の画像パスが実際のファイルの場所と一致しない
+2. imagesフォルダが見つからないか間違った場所にある
+3. ファイルパーミッションの問題
 
-**Solution**:
+**解決策**:
 ```bash
-# Check data structure
+# データ構造を確認
 ls -la data_folder/data/images/
 
-# Verify image paths in catalog match actual files
+# カタログ内の画像パスが実際のファイルと一致するか確認
 cat data_folder/data/catalog_0.catalog | head -1 | python -m json.tool
 ```
 
-### Deleted Indexes Not Persisting
+### 削除インデックスが保持されない
 
-**Symptoms**: Deleted indexes reset after restart
+**症状**: 削除インデックスが再起動後にリセットされる
 
-**Cause**: Manifest file not writable or wrong format
+**原因**: マニフェストファイルが書き込み不可または形式が間違っている
 
-**Solution**:
+**解決策**:
 ```bash
-# Check manifest file permissions
+# マニフェストファイルのパーミッションを確認
 ls -la data_folder/data/manifest.json
 
-# Verify manifest has 5 lines
+# マニフェストが5行あることを確認
 wc -l data_folder/data/manifest.json
 
-# Check line 5 contains catalog_manifest
+# 5行目にcatalog_manifestが含まれているか確認
 sed -n '5p' data_folder/data/manifest.json
 ```
 
-### Performance Issues with Large Datasets
+### 大規模データセットでのパフォーマンス問題
 
-**Symptoms**: Slow loading or chart rendering with >10,000 records
+**症状**: 10,000レコード超で読み込みやチャートレンダリングが遅い
 
-**Solutions**:
-1. Use session filtering to reduce visible data
-2. Adjust pagination limits in code
-3. Consider data decimation for very large datasets
+**解決策**:
+1. セッションフィルタリングを使用して表示データを削減
+2. コード内のページネーション制限を調整
+3. 非常に大規模なデータセットの場合はデータ間引きを検討
 
-### Browser Compatibility
+### ブラウザ互換性
 
-**Tested Browsers**:
+**テスト済みブラウザ**:
 - ✅ Chrome 90+
 - ✅ Firefox 88+
 - ✅ Edge 90+
 - ✅ Safari 14+
 
-**Known Issues**:
-- Internet Explorer not supported (requires ES6+ features)
+**既知の問題**:
+- Internet Explorerはサポート外（ES6+機能が必要）
 
-## 🎨 Customization
+## 🎨 カスタマイズ
 
-### Changing Color Scheme
+### カラースキームの変更
 
-Edit CSS variables in `templates/index.html`:
+`templates/index.html` のCSS変数を編集：
 
 ```css
 :root {
-    --bg-main: #f5f3ed;      /* Main background */
-    --bg-panel: #faf9f5;     /* Panel background */
-    --bg-hover: #f0ede4;     /* Hover state */
-    --bg-input: #ffffff;     /* Input fields */
-    --border-color: #e5e1d8; /* Borders */
-    --text-primary: #2d2d2d; /* Primary text */
-    --text-secondary: #5a5a5a; /* Secondary text */
+    --bg-main: #f5f3ed;      /* メイン背景 */
+    --bg-panel: #faf9f5;     /* パネル背景 */
+    --bg-hover: #f0ede4;     /* ホバー状態 */
+    --bg-input: #ffffff;     /* 入力フィールド */
+    --border-color: #e5e1d8; /* ボーダー */
+    --text-primary: #2d2d2d; /* プライマリテキスト */
+    --text-secondary: #5a5a5a; /* セカンダリテキスト */
 }
 ```
 
-### Adding New Data Processing
+### 新しいデータ処理の追加
 
-Extend `data_loader.py`:
+`data_loader.py` を拡張：
 
 ```python
 def custom_processing(self, key):
-    """Your custom processing logic"""
+    """カスタム処理ロジック"""
     values = [r.get(key) for r in self.records if key in r]
-    # Process values
+    # 値を処理
     return processed_values
 ```
 
-Add API endpoint in `app.py`:
+`app.py` にAPIエンドポイントを追加：
 
 ```python
 @app.route('/api/custom_endpoint', methods=['GET'])
@@ -577,46 +589,46 @@ def custom_endpoint():
     return jsonify({'result': result})
 ```
 
-### Adding New Smoothing Algorithms
+### 新しい平滑化アルゴリズムの追加
 
-Edit smoothing section in `templates/index.html`:
+`templates/index.html` の平滑化セクションを編集：
 
 ```javascript
 const applySmoothing = (data, option) => {
-    // Add your custom smoothing option
+    // カスタム平滑化オプションを追加
     if (option.startsWith('custom-')) {
-        // Your algorithm here
+        // アルゴリズムをここに記述
         return smoothedData;
     }
-    // ... existing code
+    // ... 既存のコード
 };
 ```
 
-### Modifying Panel Layout
+### パネルレイアウトの変更
 
-Adjust initial panel heights in React state:
+Reactステートで初期パネル高さを調整：
 
 ```javascript
 const [panelHeights, setPanelHeights] = React.useState({
-    images: 25,    // percentage
+    images: 25,    // パーセンテージ
     timeline: 35,
     statistics: 20,
     histogram: 20
 });
 ```
 
-## 📝 License
+## 📝 ライセンス
 
-MIT License - feel free to use and modify for your projects.
+MIT License - プロジェクトで自由に使用・修正できます。
 
-## 🤝 Contributing
+## 🤝 貢献
 
-Contributions are welcome! This viewer was built to support the Donkeycar community.
+貢献を歓迎します！このビューアはDonkeycarコミュニティをサポートするために構築されました。
 
-## 📧 Support
+## 📧 サポート
 
-For issues related to Donkeycar itself, visit: https://www.donkeycar.com/
+Donkeycar自体に関する問題については、https://www.donkeycar.com/ をご覧ください。
 
 ---
 
-**Built for Donkeycar enthusiasts** 🏎️💨
+**Donkeycar愛好家のために構築** 🏎️💨
