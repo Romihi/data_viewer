@@ -12,6 +12,35 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
+        /* Eye-friendly color palette */
+        :root {
+            --bg-main: #f5f3ed;
+            --bg-panel: #faf9f5;
+            --bg-hover: #f0ede4;
+            --bg-input: #ffffff;
+            --border-color: #e5e1d8;
+            --text-primary: #2d2d2d;
+            --text-secondary: #5a5a5a;
+        }
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-primary);
+        }
+        .bg-panel {
+            background-color: var(--bg-panel) !important;
+        }
+        .bg-main {
+            background-color: var(--bg-main) !important;
+        }
+        .hover\:bg-panel-hover:hover {
+            background-color: var(--bg-hover) !important;
+        }
+        .border-panel {
+            border-color: var(--border-color) !important;
+        }
+        .bg-input {
+            background-color: var(--bg-input) !important;
+        }
         .resize-handle {
             position: absolute;
             background: #3B82F6;
@@ -140,9 +169,9 @@
         .smoothing-tooltip {
             visibility: hidden;
             position: absolute;
-            bottom: 100%;
-            left: 0;
-            margin-bottom: 8px;
+            top: 100%;
+            right: 0;
+            margin-top: 8px;
             width: 400px;
             background-color: #1f2937;
             color: white;
@@ -162,10 +191,10 @@
         .smoothing-tooltip::after {
             content: '';
             position: absolute;
-            top: 100%;
-            left: 20px;
+            bottom: 100%;
+            right: 20px;
             border: 6px solid transparent;
-            border-top-color: #1f2937;
+            border-bottom-color: #1f2937;
         }
         .smoothing-tooltip h4 {
             font-weight: 600;
@@ -193,18 +222,19 @@
             align-items: center;
             margin-bottom: 0.5rem;
             padding: 0.5rem;
-            background-color: #f9fafb;
+            background-color: var(--bg-hover);
             border-radius: 0.375rem;
-            border: 1px solid #e5e7eb;
+            border: 1px solid var(--border-color);
             height: 40px;
             flex-shrink: 0;
         }
         .range-input {
             width: 80px;
             padding: 0.25rem 0.5rem;
-            border: 1px solid #d1d5db;
+            border: 1px solid var(--border-color);
             border-radius: 0.25rem;
             font-size: 0.75rem;
+            background-color: var(--bg-input);
         }
     </style>
 </head>
@@ -263,7 +293,7 @@
 
             return (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg shadow-xl w-96 max-w-full max-h-full overflow-hidden">
+                    <div className="bg-panel rounded-lg shadow-xl w-96 max-w-full max-h-full overflow-hidden">
                         <div className="flex items-center justify-between p-4 border-b">
                             <h3 className="text-lg font-semibold">Select Data Folder</h3>
                             <button 
@@ -1174,11 +1204,11 @@
             };
 
             return (
-                <div className="min-h-screen bg-gray-100">
+                <div className="min-h-screen bg-main">
                     <div className="p-2">
                         {/* Folder Selection */}
                         {!selectedFolder && (
-                            <div className="bg-white rounded-lg shadow p-6 mb-6">
+                            <div className="bg-panel rounded-lg shadow p-6 mb-6">
                                 <h2 className="text-xl font-semibold mb-4">Select Data Folder</h2>
                                 <div className="mb-4">
                                     <button
@@ -1206,7 +1236,7 @@
                         {selectedFolder && dataInfo && (
                             <div className="flex flex-col h-screen">
                                 {/* Compact header with info and controls */}
-                                <div className="bg-white rounded-lg shadow p-3 mb-2">
+                                <div className="bg-panel rounded-lg shadow p-3 mb-2">
                                     <div className="flex items-center justify-between">
                                         {/* Data Info */}
                                         <div className="flex gap-4 text-sm items-center">
@@ -1294,14 +1324,14 @@
                                         maxSize={800}
                                         onResize={setImagesPanelWidth}
                                     >
-                                        <div className="bg-white rounded-lg shadow p-3 h-full flex flex-col">
+                                        <div className="bg-panel rounded-lg shadow p-3 h-full flex flex-col">
                                             <div className="flex justify-between items-center mb-2">
                                                 <h3 className="text-sm font-semibold">Images</h3>
                                                 <details className="relative" style={{ zIndex: 200 }}>
                                                     <summary className="cursor-pointer text-sm text-blue-600 hover:text-blue-800">
                                                         Select Images ({imageKeys.length}/{allImageKeys.length})
                                                     </summary>
-                                                    <div className="absolute right-0 mt-1 w-48 bg-white border rounded-lg shadow-lg p-2 z-[200] max-h-64 overflow-y-auto" style={{ backgroundColor: 'white', pointerEvents: 'auto' }}>
+                                                    <div className="absolute right-0 mt-1 w-48 bg-panel border-panel rounded-lg shadow-lg p-2 z-[200] max-h-64 overflow-y-auto" style={{ pointerEvents: 'auto' }}>
                                                         {/* Control buttons */}
                                                         <div className="flex gap-2 mb-2 pb-2 border-b">
                                                             <button
@@ -1318,7 +1348,7 @@
                                                             </button>
                                                         </div>
                                                         {allImageKeys.map(key => (
-                                                            <label key={key} className="flex items-center p-1 hover:bg-gray-50 cursor-pointer">
+                                                            <label key={key} className="flex items-center p-1 hover:bg-panel-hover cursor-pointer">
                                                                 <input
                                                                     type="checkbox"
                                                                     checked={visibleImageKeys[key] || false}
@@ -1378,14 +1408,14 @@
                                             minSize={250}
                                             onResize={setTimelineHeight}
                                         >
-                                            <div className="bg-white rounded-lg shadow p-3" style={{ height: 'calc(100% - 8px)' }}>
+                                            <div className="bg-panel rounded-lg shadow p-3" style={{ height: 'calc(100% - 8px)' }}>
                                             <div className="flex justify-between items-center mb-2">
                                                 <h3 className="text-sm font-semibold">Timeline</h3>
                                                 <details className="relative" style={{ zIndex: 200 }}>
                                                     <summary className="cursor-pointer text-sm text-blue-600 hover:text-blue-800">
                                                         Select Data ({Object.values(visibleKeys).filter(v => v).length} active)
                                                     </summary>
-                                                    <div className="absolute right-0 mt-1 w-64 bg-white border rounded-lg shadow-lg p-2 z-[200] max-h-[calc(100vh-100px)] overflow-y-auto" style={{ backgroundColor: 'white', pointerEvents: 'auto' }}>
+                                                    <div className="absolute right-0 mt-1 w-64 bg-panel border-panel rounded-lg shadow-lg p-2 z-[200] max-h-[calc(100vh-100px)] overflow-y-auto" style={{ pointerEvents: 'auto' }}>
                                                         {/* Control buttons */}
                                                         <div className="flex gap-2 mb-2 pb-2 border-b">
                                                             <button
@@ -1402,7 +1432,7 @@
                                                             </button>
                                                         </div>
                                                         {Object.keys(statistics).map(key => (
-                                                            <label key={key} className="flex items-center p-1 hover:bg-gray-50 cursor-pointer">
+                                                            <label key={key} className="flex items-center p-1 hover:bg-panel-hover cursor-pointer">
                                                                 <input
                                                                     type="checkbox"
                                                                     checked={visibleKeys[key] || false}
@@ -1471,25 +1501,42 @@
                                                 >
                                                     正規化 {normalizeData ? 'ON' : 'OFF'}
                                                 </button>
-                                                <select
-                                                    value={smoothingOption}
-                                                    onChange={(e) => setSmoothingOption(e.target.value)}
-                                                    className="px-2 py-1 border rounded text-xs"
-                                                    title="Apply smoothing to data"
-                                                >
-                                                    <option value="none">平滑化なし</option>
-                                                    <optgroup label="移動平均">
-                                                        <option value="ma-3">移動平均 (窓=3)</option>
-                                                        <option value="ma-5">移動平均 (窓=5)</option>
-                                                        <option value="ma-10">移動平均 (窓=10)</option>
-                                                        <option value="ma-20">移動平均 (窓=20)</option>
-                                                    </optgroup>
-                                                    <optgroup label="指数移動平均">
-                                                        <option value="ema-0.1">指数平滑化 (α=0.1)</option>
-                                                        <option value="ema-0.3">指数平滑化 (α=0.3)</option>
-                                                        <option value="ema-0.5">指数平滑化 (α=0.5)</option>
-                                                    </optgroup>
-                                                </select>
+                                                <div className="smoothing-tooltip-wrapper">
+                                                    <select
+                                                        value={smoothingOption}
+                                                        onChange={(e) => setSmoothingOption(e.target.value)}
+                                                        className="px-2 py-1 border rounded text-xs"
+                                                    >
+                                                        <option value="none">平滑化なし</option>
+                                                        <optgroup label="移動平均">
+                                                            <option value="ma-3">移動平均 (窓=3)</option>
+                                                            <option value="ma-5">移動平均 (窓=5)</option>
+                                                            <option value="ma-10">移動平均 (窓=10)</option>
+                                                            <option value="ma-20">移動平均 (窓=20)</option>
+                                                        </optgroup>
+                                                        <optgroup label="指数移動平均">
+                                                            <option value="ema-0.1">指数平滑化 (α=0.1)</option>
+                                                            <option value="ema-0.3">指数平滑化 (α=0.3)</option>
+                                                            <option value="ema-0.5">指数平滑化 (α=0.5)</option>
+                                                        </optgroup>
+                                                    </select>
+                                                    <div className="smoothing-tooltip">
+                                                        <h4>移動平均 (Moving Average):</h4>
+                                                        <ul>
+                                                            <li>ウィンドウサイズ: 3, 5, 10, 20</li>
+                                                            <li>各データポイントを中心とした窓の平均値を計算</li>
+                                                            <li>式: <code>smoothed[i] = Σ(data[j]) / count</code></li>
+                                                            <li style={{ marginLeft: '20px' }}><code>j ∈ [i-⌊w/2⌋, i+⌈w/2⌉]</code></li>
+                                                            <li>エッジ部分は利用可能なデータのみで計算</li>
+                                                        </ul>
+                                                        <h4 style={{ marginTop: '8px' }}>指数移動平均 (Exponential Moving Average):</h4>
+                                                        <ul>
+                                                            <li>α値: 0.1, 0.3, 0.5</li>
+                                                            <li>式: <code>smoothed[i] = α × data[i] + (1 - α) × smoothed[i-1]</code></li>
+                                                            <li>α値が小さいほど滑らかになる（過去の影響が強い）</li>
+                                                        </ul>
+                                                    </div>
+                                                </div>
                                                 <span className="text-xs text-gray-600">
                                                     {zoomRange.min} - {zoomRange.max !== null ? zoomRange.max : records.length - 1}
                                                 </span>
@@ -1503,7 +1550,7 @@
                                         {/* Statistics and Current Record Data - Full Height */}
                                         <div className="flex gap-2" style={{ flex: 1, minHeight: 0 }}>
                                             {/* Statistics Panel - 70% width */}
-                                            <div className="bg-white rounded-lg shadow p-3 overflow-hidden flex flex-col" style={{ flex: '7', minHeight: 0 }}>
+                                            <div className="bg-panel rounded-lg shadow p-3 overflow-hidden flex flex-col" style={{ flex: '7', minHeight: 0 }}>
                                                 <h3 className="text-sm font-semibold mb-2">Statistics</h3>
                                                 <div className="flex gap-3" style={{ flex: 1, minHeight: 0 }}>
                                                     {/* Histogram on the left */}
@@ -1517,7 +1564,7 @@
                                                     <div className="overflow-y-auto" style={{ flex: 1, minHeight: 0 }}>
                                                     <table className="w-full text-xs">
                                                         <thead>
-                                                            <tr className="bg-gray-50">
+                                                            <tr style={{ backgroundColor: 'var(--bg-hover)' }}>
                                                                 <th className="py-1 px-2 text-left">Key</th>
                                                                 <th className="py-1 px-1 text-center">Mean</th>
                                                                 <th className="py-1 px-1 text-center">Std</th>
@@ -1528,7 +1575,7 @@
                                                         </thead>
                                                         <tbody>
                                                             {Object.entries(statistics).map(([key, stats]) => (
-                                                                <tr key={key} className="border-b hover:bg-gray-50">
+                                                                <tr key={key} className="border-b hover:bg-panel-hover">
                                                                     <td className="py-1 px-2 font-medium text-xs">{key}</td>
                                                                     <td className="py-1 px-1 text-center text-xs">
                                                                         {stats.mean?.toFixed(3) || 'N/A'}
@@ -1554,7 +1601,7 @@
                                             </div>
 
                                             {/* Current Record Data - 30% width */}
-                                            <div className="bg-white rounded-lg shadow p-3 overflow-hidden flex flex-col" style={{ flex: '3', minHeight: 0 }}>
+                                            <div className="bg-panel rounded-lg shadow p-3 overflow-hidden flex flex-col" style={{ flex: '3', minHeight: 0 }}>
                                                 <h3 className="text-sm font-semibold mb-2">Current Record Data</h3>
                                                 <div className="overflow-y-auto" style={{ flex: 1, minHeight: 0 }}>
                                                     <table className="w-full text-xs">
