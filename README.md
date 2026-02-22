@@ -129,8 +129,14 @@
 仮想環境作成
 
 ```bash
-python -m venv
+python -m venv venv
+
+# rpi
+source ./venv/bin/activate
+
+# windows
 ./venv/bin/activate
+
 ```
 
 必要なPythonパッケージをインストール：
