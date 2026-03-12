@@ -2963,7 +2963,7 @@
                                             </div>
                                             <div
                                                 className="image-grid flex-1"
-                                                style={gridStyle}
+                                                style={{...gridStyle, minHeight: 0}}
                                             >
                                                 {imageKeys.map(key => {
                                                     const apiUrl = `${API_BASE}/api/image/${currentRecord[key]}`;
@@ -3058,8 +3058,9 @@
                                                         </div>
                                                     </div>
                                                 )}
-                                                {/* Current Record Data - spans full width */}
-                                                <div key="__current_record__" className="bg-panel rounded" style={{ gridColumn: '1 / -1', overflow: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                                            </div>
+                                            {/* Current Record Data - always visible below images */}
+                                            <div className="bg-panel rounded" style={{ flexShrink: 0, overflowY: 'auto', maxHeight: '45%', display: 'flex', flexDirection: 'column', borderTop: '1px solid #e5e1d8' }}>
                                                     <p className="text-xs font-semibold text-gray-600" style={{ lineHeight: 1, padding: '4px 6px 2px' }}>現在のレコード</p>
                                                     {showPredictions && predictions && predictions.length > 0 && (() => {
                                                         const pred = predictions[currentIndex];
@@ -3206,7 +3207,6 @@
                                                         );
                                                     })()}
                                                 </div>
-                                            </div>
                                         </div>
                                     </ResizablePanel>
 
