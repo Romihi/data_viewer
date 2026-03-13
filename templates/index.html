@@ -930,11 +930,11 @@
             const [selectedSensors, setSelectedSensors] = useState([]);
             const [availableOutputs, setAvailableOutputs] = useState(['user/angle', 'user/throttle']);
             const [selectedOutputs, setSelectedOutputs] = useState(['user/angle', 'user/throttle']);
-            const [hiddenLayers, setHiddenLayers] = useState('64,32');
+            const [hiddenLayers, setHiddenLayers] = useState('64,64,64');
             const [epochs, setEpochs] = useState(100);
             const [batchSize, setBatchSize] = useState(32);
             const [learningRate, setLearningRate] = useState(0.001);
-            const [useDropout, setUseDropout] = useState(true);
+            const [useDropout, setUseDropout] = useState(false);
             const [dropoutRate, setDropoutRate] = useState(0.2);
             // Dataset range and downsampling
             const [dataRangeStart, setDataRangeStart] = useState('');
