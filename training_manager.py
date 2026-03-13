@@ -238,6 +238,9 @@ class TrainingManager:
                 mlflow.log_param("output_size", len(config.selected_outputs))
                 mlflow.log_param("use_dropout", config.use_dropout)
                 mlflow.log_param("dropout_rate", config.dropout_rate)
+                mlflow.log_param("normalization_type", config.normalization_type)
+                if config.normalization_type == 'clip_scale':
+                    mlflow.log_param("clip_max", config.clip_max)
                 mlflow.log_param("is_continuation", continue_training)
 
                 if continue_training and self.current_model_info:
@@ -308,12 +311,21 @@ class TrainingManager:
                     self.progress["is_training"] = False
                     return
 
-                # ---- 入力データの正規化（標準化） ----
-                # 各特徴量を「平均0、標準偏差1」に変換する
-                # これにより学習が安定し、収束が速くなる
-                # 例: 超音波の値が 0~400cm → 平均200, std=100 なら → (値-200)/100
-                X_mean, X_std = X.mean(axis=0), X.std(axis=0)
-                X_normalized = (X - X_mean) / (X_std + 1e-8)  # 1e-8 はゼロ除算防止
+                # ---- 入力データの正規化 ----
+                if config.normalization_type == 'clip_scale':
+                    # クリップ＋固定スケール正規化
+                    # clip_max (mm) 以上の値をクリップし、0〜1 にスケール
+                    clip_val = config.clip_max if config.clip_max else 2000.0
+                    X_normalized = np.clip(X, 0, clip_val) / clip_val
+                    X_mean = None
+                    X_std = None
+                    print(f"[Training] Normalization: clip_scale (clip_max={clip_val})")
+                else:
+                    # Z-score標準化（デフォルト）
+                    # 各特徴量を「平均0、標準偏差1」に変換する
+                    X_mean, X_std = X.mean(axis=0), X.std(axis=0)
+                    X_normalized = (X - X_mean) / (X_std + 1e-8)  # 1e-8 はゼロ除算防止
+                    print(f"[Training] Normalization: zscore")
 
                 # ============================================================
                 # ステップ2: PyTorch の DataLoader を構築
@@ -480,8 +492,10 @@ class TrainingManager:
                     "use_dropout": config.use_dropout,
                     "dropout_rate": config.dropout_rate,
                     "normalization_params": {
-                        "X_mean": X_mean.tolist(),   # 推論時にも同じ正規化を適用するため保存
-                        "X_std": X_std.tolist()
+                        "type": config.normalization_type,
+                        "X_mean": X_mean.tolist() if X_mean is not None else None,
+                        "X_std": X_std.tolist() if X_std is not None else None,
+                        "clip_max": config.clip_max if config.normalization_type == 'clip_scale' else None
                     },
                     "train_losses": train_losses,
                     "val_losses": val_losses,
@@ -510,8 +524,10 @@ class TrainingManager:
                     'selected_sensors': config.selected_sensors,
                     'selected_outputs': config.selected_outputs,
                     'normalization_params': {
-                        'X_mean': X_mean.tolist(),
-                        'X_std': X_std.tolist()
+                        'type': config.normalization_type,
+                        'X_mean': X_mean.tolist() if X_mean is not None else None,
+                        'X_std': X_std.tolist() if X_std is not None else None,
+                        'clip_max': config.clip_max if config.normalization_type == 'clip_scale' else None
                     },
                     'mlflow_run_id': mlflow.active_run().info.run_id,
                     'train_losses': train_losses,
@@ -531,11 +547,13 @@ class TrainingManager:
                 torch.save(model_data, model_path)
 
                 # 正規化パラメータも MLflow に記録
-                normalization_params = {
-                    "X_mean": X_mean.tolist(),
-                    "X_std": X_std.tolist()
+                normalization_artifact = {
+                    "type": config.normalization_type,
+                    "X_mean": X_mean.tolist() if X_mean is not None else None,
+                    "X_std": X_std.tolist() if X_std is not None else None,
+                    "clip_max": config.clip_max if config.normalization_type == 'clip_scale' else None
                 }
-                mlflow.log_dict(normalization_params, "normalization_params.json")
+                mlflow.log_dict(normalization_artifact, "normalization_params.json")
 
         except Exception as e:
             import traceback
@@ -698,11 +716,16 @@ class TrainingManager:
 
             # Get normalization params
             norm_params = self.current_model_info.get("normalization_params", {})
-            X_mean = np.array(norm_params.get("X_mean", [0] * X.shape[1]))
-            X_std = np.array(norm_params.get("X_std", [1] * X.shape[1]))
+            norm_type = norm_params.get("type", "zscore")
 
             # Normalize
-            X_normalized = (X - X_mean) / (X_std + 1e-8)
+            if norm_type == 'clip_scale':
+                clip_val = norm_params.get("clip_max", 2000.0)
+                X_normalized = np.clip(X, 0, clip_val) / clip_val
+            else:
+                X_mean = np.array(norm_params.get("X_mean", [0] * X.shape[1]))
+                X_std = np.array(norm_params.get("X_std", [1] * X.shape[1]))
+                X_normalized = (X - X_mean) / (X_std + 1e-8)
 
             # Convert to tensor and predict
             X_tensor = torch.FloatTensor(X_normalized)

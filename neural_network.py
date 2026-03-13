@@ -91,11 +91,11 @@ class TrainingConfig:
     """
 
     # --- ネットワーク構造 ---
-    hidden_layers: List[int] = field(default_factory=lambda: [64, 32])
-    #   隠れ層のニューロン数。[64, 32] = 第1隠れ層64個、第2隠れ層32個
+    hidden_layers: List[int] = field(default_factory=lambda: [64, 64, 64])
+    #   隠れ層のニューロン数。[64, 64, 64] = 各隠れ層64個
 
     # --- 学習ハイパーパラメータ ---
-    epochs: int = 100
+    epochs: int = 50
     #   エポック数 = データ全体を何回繰り返し学習するか
 
     batch_size: int = 32
@@ -126,8 +126,12 @@ class TrainingConfig:
     #   出力（予測対象）のキー一覧
 
     # --- 正則化 ---
-    use_dropout: bool = True
+    use_dropout: bool = False
     dropout_rate: float = 0.2
+
+    # --- 正規化方式 ---
+    normalization_type: str = 'zscore'   # 'zscore' or 'clip_scale'
+    clip_max: float = None               # clip_scale 時のクリップ最大値 (mm)
 
     # --- データ範囲指定（None = 全データ使用） ---
     data_range_start: int = None  # 開始インデックス（この値を含む）
@@ -143,8 +147,8 @@ class TrainingConfig:
         存在しないキーにはデフォルト値を使用する。
         """
         return cls(
-            hidden_layers=data.get('hidden_layers', [64, 32]),
-            epochs=data.get('epochs', 100),
+            hidden_layers=data.get('hidden_layers', [64, 64, 64]),
+            epochs=data.get('epochs', 50),
             batch_size=data.get('batch_size', 32),
             learning_rate=data.get('learning_rate', 0.001),
             deleted_indexes=data.get('deleted_indexes', []),
@@ -159,8 +163,10 @@ class TrainingConfig:
                 'user/angle',
                 'user/throttle'
             ]),
-            use_dropout=data.get('use_dropout', True),
+            use_dropout=data.get('use_dropout', False),
             dropout_rate=data.get('dropout_rate', 0.2),
+            normalization_type=data.get('normalization_type', 'zscore'),
+            clip_max=data.get('clip_max', None),
             data_range_start=data.get('data_range_start', None),
             data_range_end=data.get('data_range_end', None),
             downsample_rate=data.get('downsample_rate', 1)
