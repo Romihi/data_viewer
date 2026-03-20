@@ -142,7 +142,7 @@ source ./venv/bin/activate
 必要なPythonパッケージをインストール：
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt --timeout 300 
 ```
 
 **主要な依存パッケージ**:
