@@ -794,6 +794,30 @@ pip install torch==2.3.1 torchvision==0.18.1
 
 `requirements.txt` では既にバージョン上限を設定済みです（`torch<=2.3.1`）。新規インストールの場合は `pip install -r requirements.txt` で問題ありません。
 
+### リモートPCからアクセスできない（ERR_CONNECTION_TIMED_OUT）
+
+**症状**: Flaskサーバーは正常に起動しているが、リモートPCのブラウザから `192.168.0.xx:8010` にアクセスすると `ERR_CONNECTION_TIMED_OUT` になる
+
+**原因**: `ufw`（ファイアウォール）がポート8010をブロックしている
+
+**確認方法**:
+```bash
+# ufwが有効か確認
+systemctl is-active ufw
+
+# ファイアウォールのルール一覧を確認
+sudo ufw status
+```
+
+**解決策**:
+```bash
+# ポート8010を許可
+sudo ufw allow 8010/tcp
+
+# 許可されたことを確認
+sudo ufw status | grep 8010
+```
+
 ### ブラウザ互換性
 
 **テスト済みブラウザ**:

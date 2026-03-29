@@ -12,6 +12,9 @@ import subprocess
 import webbrowser
 import threading
 import inspect
+import atexit
+import signal
+import socket
 from pathlib import Path
 from data_loader import DonkeycarDataLoader
 from training_manager import TrainingManager
@@ -32,6 +35,36 @@ data_loader = DonkeycarDataLoader()
 
 # Initialize training manager
 training_manager = TrainingManager()
+
+# Track child processes for cleanup
+_child_processes = []
+
+
+def _cleanup_child_processes():
+    """Terminate all child processes on exit"""
+    for proc in _child_processes:
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    _child_processes.clear()
+
+
+atexit.register(_cleanup_child_processes)
+
+
+def _signal_handler(signum, frame):
+    """Handle SIGTERM/SIGINT for graceful shutdown"""
+    _cleanup_child_processes()
+    sys.exit(0)
+
+
+signal.signal(signal.SIGTERM, _signal_handler)
+signal.signal(signal.SIGINT, _signal_handler)
 
 @app.route('/')
 def index():
@@ -560,9 +593,8 @@ def start_mlflow_ui():
     """Start MLflow UI server"""
     try:
         # Check if MLflow UI is already running
-        import socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        result = sock.connect_ex(('localhost', 8011))
+        result = sock.connect_ex(('127.0.0.1', 8011))
         sock.close()
 
         if result == 0:
@@ -577,6 +609,7 @@ def start_mlflow_ui():
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
+        _child_processes.append(proc)
         logger.info(f'MLflow UI process started (pid={proc.pid}), mlruns={mlruns_path}')
 
         return jsonify({'message': 'MLflow UI started', 'port': 8011})
@@ -744,10 +777,41 @@ if __name__ == '__main__':
 
     PORT = 8010
 
+    def _get_local_ip():
+        """Get the local IP address for LAN access"""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(('8.8.8.8', 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return None
+
+    local_ip = _get_local_ip()
+    logger.info(f'Starting data_viewer on port {PORT}')
+    logger.info(f'  Local:   http://localhost:{PORT}')
+    if local_ip:
+        logger.info(f'  Network: http://{local_ip}:{PORT}')
+
     # Open browser automatically after a short delay
     def open_browser():
         webbrowser.open(f'http://localhost:{PORT}')
 
     threading.Timer(1.5, open_browser).start()
+
+    # Kill any leftover process on the port before starting
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        if sock.connect_ex(('127.0.0.1', PORT)) == 0:
+            logger.warning(f'Port {PORT} is already in use. Attempting to free it...')
+            subprocess.run(['fuser', '-k', f'{PORT}/tcp'], capture_output=True)
+        sock.close()
+    except Exception:
+        pass
+
+    from werkzeug.serving import WSGIRequestHandler
+    WSGIRequestHandler.protocol_version = "HTTP/1.1"
 
     app.run(host='0.0.0.0', port=PORT, debug=True, use_reloader=False)
