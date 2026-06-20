@@ -13,22 +13,26 @@
     <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
     <link rel="manifest" href="/static/manifest.json">
     <title>Data Viewer</title>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
-    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <!-- 依存ライブラリはローカル(static/vendor)に同梱。外部CDNに依存せずオフラインでも動作し、
+         RPi+不安定回線でも初回ロードが安定・高速になる。更新は static/vendor/ のファイルを差し替える。 -->
+    <script crossorigin src="/static/vendor/react.production.min.js"></script>
+    <script crossorigin src="/static/vendor/react-dom.production.min.js"></script>
+    <!-- Babel 7 を固定使用: Babel 8 では preset-react の JSX runtime が
+         "automatic" になり、import 文が自動挿入されて UMD 構成では動かないため。 -->
+    <script src="/static/vendor/babel.min.js"></script>
+    <script src="/static/vendor/chart.js"></script>
+    <script src="/static/vendor/chartjs-plugin-annotation.js"></script>
+    <script src="/static/vendor/chartjs-plugin-zoom.js"></script>
+    <script src="/static/vendor/plotly-2.32.0.min.js"></script>
+    <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
     <!-- Syntax highlighting for code tab -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/vs2015.min.css">
-    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/python.min.js"></script>
+    <link rel="stylesheet" href="/static/vendor/highlight-vs2015.min.css">
+    <script src="/static/vendor/highlight.min.js"></script>
+    <script src="/static/vendor/highlight-python.min.js"></script>
     <!-- AG Grid Community (MIT) for data tab -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-grid.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/styles/ag-theme-alpine.css">
-    <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.3/dist/ag-grid-community.min.js"></script>
+    <link rel="stylesheet" href="/static/vendor/ag-grid.css">
+    <link rel="stylesheet" href="/static/vendor/ag-theme-alpine.css">
+    <script src="/static/vendor/ag-grid-community.min.js"></script>
     <style>
         /* Eye-friendly color palette */
         :root {
@@ -236,6 +240,16 @@
             border-radius: 3px;
             font-family: 'Courier New', monospace;
             font-size: 10px;
+        }
+        /* ParamHint 用: ボタンの左端を基準に右方向へ展開（左カラムでも画面外に出ない）。
+           内容スタイルは .smoothing-tooltip を流用するため両クラスを併用する。 */
+        .param-tooltip {
+            right: auto;
+            left: 0;
+        }
+        .param-tooltip::after {
+            right: auto;
+            left: 12px;
         }
         .range-controls {
             display: flex;
@@ -482,6 +496,21 @@
         const { useState, useEffect, useRef, useCallback } = React;
 
         const API_BASE = '';
+
+        // ラベル + ホバーで説明が出るヒントボタン（?）。学習設定の各パラメータ用。
+        function ParamHint({ label, children }) {
+            return (
+                <label style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    {label}
+                    <span className="smoothing-tooltip-wrapper">
+                        <span style={{ cursor: 'help', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '14px', height: '14px', borderRadius: '50%', background: '#3B82F6', color: 'white', fontSize: '9px', fontWeight: 'bold', lineHeight: 1, flexShrink: 0 }}>?</span>
+                        <div className="smoothing-tooltip param-tooltip" style={{ width: '300px' }}>
+                            {children}
+                        </div>
+                    </span>
+                </label>
+            );
+        }
 
         // File Browser component
         function FileBrowser({ onSelectFolder, onClose }) {
@@ -921,7 +950,10 @@
             const [deleteEndIdx, setDeleteEndIdx] = useState('');
             const [imageLoadProgress, setImageLoadProgress] = useState({ loaded: 0, total: 0, done: true });
             // Tab state
-            const [activeTab, setActiveTab] = useState('viewer'); // 'viewer' | 'training' | 'code' | 'data'
+            const [activeTab, setActiveTab] = useState('viewer'); // 'viewer' | 'training' | 'code' | 'data' | 'mlflow'
+            const [mlflowTabOpened, setMlflowTabOpened] = useState(false); // iframe遅延ロード用
+            const [mlflowReady, setMlflowReady] = useState(false);         // MLflow(8011)が応答可能か
+            const [mlflowWaitMsg, setMlflowWaitMsg] = useState('MLflow を起動しています...'); // 待機メッセージ
             const [codeSections, setCodeSections] = useState([]);
             const [codeExpandedMap, setCodeExpandedMap] = useState({});
             // Data tab: AG Grid
@@ -948,8 +980,10 @@
             const [trainingProgress, setTrainingProgress] = useState(null);
             const [trainLosses, setTrainLosses] = useState([]);
             const [valLosses, setValLosses] = useState([]);
+            const [valMaeSeries, setValMaeSeries] = useState({}); // 出力別の検証MAE履歴
             const [models, setModels] = useState([]);
             const [modelsDir, setModelsDir] = useState('');
+            const [mlflowExperimentId, setMlflowExperimentId] = useState(null);
             const [currentModel, setCurrentModel] = useState(null);
             const [trainingLog, setTrainingLog] = useState([]);
             const [predictions, setPredictions] = useState(null); // Store prediction results for chart overlay
@@ -2271,6 +2305,7 @@
                     const data = await response.json();
                     setModels(data.models || []);
                     if (data.models_dir) setModelsDir(data.models_dir);
+                    if (data.mlflow_experiment_id) setMlflowExperimentId(data.mlflow_experiment_id);
                 } catch (error) {
                     console.error('Error loading models:', error);
                 }
@@ -2341,6 +2376,7 @@
                     setIsTraining(true);
                     setTrainLosses([]);
                     setValLosses([]);
+                    setValMaeSeries({});
                     addLog(`Training started: ${continueTraining ? 'Continue' : 'New'} model`);
 
                     // Start progress polling
@@ -2379,7 +2415,8 @@
                         if (progress.train_losses && progress.train_losses.length > 0) {
                             setTrainLosses(progress.train_losses);
                             setValLosses(progress.val_losses || []);
-                            updateLearningCurve(progress.train_losses, progress.val_losses || []);
+                            setValMaeSeries(progress.val_mae_series || {});
+                            updateLearningCurve(progress.train_losses, progress.val_losses || [], progress.val_mae_series || {});
                         }
 
                         if (!progress.is_training) {
@@ -2395,7 +2432,8 @@
             };
 
             // Update learning curve with Plotly
-            const updateLearningCurve = (trainLosses, valLosses) => {
+            // valMaeSeries: { angle: [...], throttle: [...] } 出力別の検証MAE（任意）
+            const updateLearningCurve = (trainLosses, valLosses, valMaeSeries) => {
                 if (!learningCurveRef.current) return;
 
                 const traces = [
@@ -2415,12 +2453,30 @@
                     }
                 ];
 
+                // 出力別の検証MAEを破線で重畳（angle/throttle の精度推移を個別に表示）
+                const maePalette = ['#F59E0B', '#10B981', '#8B5CF6', '#EC4899'];
+                if (valMaeSeries && typeof valMaeSeries === 'object') {
+                    Object.keys(valMaeSeries).forEach((name, i) => {
+                        const series = valMaeSeries[name];
+                        if (Array.isArray(series) && series.length > 0) {
+                            traces.push({
+                                y: series,
+                                name: `MAE ${name}`,
+                                type: 'scatter',
+                                mode: 'lines',
+                                line: { color: maePalette[i % maePalette.length], dash: 'dash' }
+                            });
+                        }
+                    });
+                }
+
                 const layout = {
                     title: 'Learning Curve',
                     xaxis: { title: 'Epoch' },
-                    yaxis: { title: 'Loss' },
-                    margin: { t: 40, r: 20, b: 40, l: 50 },
-                    legend: { x: 1, y: 1, xanchor: 'right' }
+                    yaxis: { title: 'Loss / MAE' },
+                    // 凡例をプロット右外に配置（x>1）し、被らないよう右マージンを確保
+                    margin: { t: 40, r: 130, b: 40, l: 50 },
+                    legend: { x: 1.02, y: 1, xanchor: 'left', yanchor: 'top' }
                 };
 
                 Plotly.react(learningCurveRef.current, traces, layout, { responsive: true });
@@ -2445,10 +2501,12 @@
                     addLog(`Model loaded: ${model.filename}`);
 
                     // Update learning curve with loaded model's losses
+                    // 読込済みモデルには出力別MAE履歴を保存していないため、MAE系列はクリアして損失のみ表示
                     if (data.train_losses && data.train_losses.length > 0) {
                         setTrainLosses(data.train_losses);
                         setValLosses(data.val_losses || []);
-                        updateLearningCurve(data.train_losses, data.val_losses || []);
+                        setValMaeSeries({});
+                        updateLearningCurve(data.train_losses, data.val_losses || [], {});
                     }
                 } catch (error) {
                     console.error('Error loading model:', error);
@@ -2545,25 +2603,67 @@
                     const response = await fetch('/api/mlflow/start', { method: 'POST' });
                     const data = await response.json();
                     addLog(data.message);
-                    // Build URL using browser's current hostname (works for both local and remote)
-                    const mlflowUrl = `http://${window.location.hostname}:${data.port}`;
+                    // /mlflow/ プロキシ経由でアクセス（ポート 8011 を別途開く必要がない）
+                    const mlflowUrl = `${window.location.origin}/mlflow/`;
+
+                    if (data.ready) {
+                        // Already running — show link immediately
+                        addLog(`MLflow UI: <a href="${mlflowUrl}" target="_blank" style="color:#3b82f6;text-decoration:underline">${mlflowUrl}</a>`);
+                        return;
+                    }
+
+                    // Poll /api/mlflow/status on the server side (avoids browser CORS/popup-blocker issues)
+                    const MAX_RETRIES = 60;
                     let retries = 0;
                     const waitForReady = async () => {
-                        while (retries < 10) {
+                        while (retries < MAX_RETRIES) {
+                            await new Promise(r => setTimeout(r, 1000));
+                            retries++;
                             try {
-                                await fetch(mlflowUrl, { mode: 'no-cors' });
-                                window.open(mlflowUrl, '_blank');
-                                return;
-                            } catch {
-                                retries++;
-                                await new Promise(r => setTimeout(r, 1000));
+                                const st = await fetch('/api/mlflow/status');
+                                const s = await st.json();
+                                if (s.ready) {
+                                    addLog(`MLflow UI 起動完了 (${retries}s): <a href="${mlflowUrl}" target="_blank" style="color:#3b82f6;text-decoration:underline">${mlflowUrl}</a>`);
+                                    return;
+                                }
+                            } catch { /* keep polling */ }
+                            if (retries % 10 === 0) {
+                                addLog(`MLflow UI 起動待機中... (${retries}s / ${MAX_RETRIES}s)`);
                             }
                         }
-                        addLog('MLflow UIの起動に時間がかかっています。手動でアクセスしてください: ' + mlflowUrl);
+                        addLog(`MLflow UI が ${MAX_RETRIES}s 以内に起動しませんでした: <a href="${mlflowUrl}" target="_blank" style="color:#3b82f6;text-decoration:underline">${mlflowUrl}</a>`);
                     };
                     waitForReady();
                 } catch (error) {
                     console.error('Error starting MLflow:', error);
+                }
+            };
+
+            // MLflowタブを開く: 起動をトリガーし、ready になってから iframe を表示する。
+            // （MLflow(8011)はバックグラウンド起動に20〜30秒かかるため、未起動だと proxy が
+            //   Connection refused を返してしまう。ここで ready 確認してから埋め込む）
+            const openMlflowTab = async () => {
+                setActiveTab('mlflow');
+                setMlflowTabOpened(true);
+                if (mlflowReady) return;  // 既に準備済みなら何もしない
+                try {
+                    const resp = await fetch('/api/mlflow/start', { method: 'POST' });
+                    const data = await resp.json().catch(() => ({}));
+                    if (data.ready) { setMlflowReady(true); return; }
+                    const MAX_RETRIES = 60;
+                    let retries = 0;
+                    while (retries < MAX_RETRIES) {
+                        await new Promise(r => setTimeout(r, 1000));
+                        retries++;
+                        setMlflowWaitMsg(`MLflow を起動しています... (${retries}s / ${MAX_RETRIES}s)`);
+                        try {
+                            const s = await (await fetch('/api/mlflow/status')).json();
+                            if (s.ready) { setMlflowReady(true); return; }
+                        } catch { /* keep polling */ }
+                    }
+                    setMlflowWaitMsg('MLflow の起動がタイムアウトしました。「再読込」を押すか、しばらく待って再度お試しください。');
+                } catch (e) {
+                    setMlflowWaitMsg('MLflow の起動に失敗しました: ' + e);
                 }
             };
 
@@ -2895,6 +2995,13 @@
                                         onClick={() => setActiveTab('data')}
                                     >
                                         データ
+                                    </button>
+                                    <button
+                                        className={`tab-button ${activeTab === 'mlflow' ? 'active' : ''}`}
+                                        onClick={openMlflowTab}
+                                        title="学習履歴・比較・診断グラフ (MLflow)"
+                                    >
+                                        MLflow
                                     </button>
                                 </div>
 
@@ -3681,7 +3788,14 @@
                                                 <h3>学習設定</h3>
                                                 <div className="config-grid">
                                                     <div className="config-item">
-                                                        <label>隠れ層</label>
+                                                        <ParamHint label="隠れ層">
+                                                            <h4>隠れ層 (Hidden Layers)</h4>
+                                                            <ul>
+                                                                <li>中間層のニューロン数をカンマ区切りで指定（例 <code>64,64,64</code> = 3層 各64個）</li>
+                                                                <li>多い/深いほど表現力↑だが過学習・計算コスト↑</li>
+                                                                <li>少なすぎると複雑なパターンを学習できない</li>
+                                                            </ul>
+                                                        </ParamHint>
                                                         <input
                                                             type="text"
                                                             value={hiddenLayers}
@@ -3690,7 +3804,14 @@
                                                         />
                                                     </div>
                                                     <div className="config-item">
-                                                        <label>エポック数</label>
+                                                        <ParamHint label="エポック数">
+                                                            <h4>エポック数 (Epochs)</h4>
+                                                            <ul>
+                                                                <li>全データを繰り返し学習する回数</li>
+                                                                <li>多いほど学習は進むが、増やしすぎると過学習（検証損失が増加に転じる）</li>
+                                                                <li>学習曲線で検証損失が下げ止まる手前が目安</li>
+                                                            </ul>
+                                                        </ParamHint>
                                                         <input
                                                             type="number"
                                                             value={epochs}
@@ -3699,7 +3820,14 @@
                                                         />
                                                     </div>
                                                     <div className="config-item">
-                                                        <label>バッチサイズ</label>
+                                                        <ParamHint label="バッチサイズ">
+                                                            <h4>バッチサイズ (Batch Size)</h4>
+                                                            <ul>
+                                                                <li>一度に処理するサンプル数</li>
+                                                                <li>大きいと学習が安定・高速だがメモリ消費↑</li>
+                                                                <li>小さいとノイズは増えるが汎化に効くことも。32〜64が一般的</li>
+                                                            </ul>
+                                                        </ParamHint>
                                                         <input
                                                             type="number"
                                                             value={batchSize}
@@ -3708,7 +3836,15 @@
                                                         />
                                                     </div>
                                                     <div className="config-item">
-                                                        <label>学習率</label>
+                                                        <ParamHint label="学習率">
+                                                            <h4>学習率 (Learning Rate)</h4>
+                                                            <ul>
+                                                                <li>パラメータ更新の歩幅</li>
+                                                                <li>大きいと速いが発散・振動しやすい</li>
+                                                                <li>小さいと安定だが収束が遅い。<code>0.001</code> 前後が定番</li>
+                                                                <li>損失が下がらない/暴れる時に調整</li>
+                                                            </ul>
+                                                        </ParamHint>
                                                         <input
                                                             type="number"
                                                             value={learningRate}
@@ -3725,11 +3861,29 @@
                                                                 onChange={e => setUseDropout(e.target.checked)}
                                                             />
                                                             ドロップアウト使用
+                                                            <span className="smoothing-tooltip-wrapper">
+                                                                <span style={{ cursor: 'help', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '14px', height: '14px', borderRadius: '50%', background: '#3B82F6', color: 'white', fontSize: '9px', fontWeight: 'bold', lineHeight: 1, flexShrink: 0 }}>?</span>
+                                                                <div className="smoothing-tooltip param-tooltip" style={{ width: '300px' }}>
+                                                                    <h4>ドロップアウト (Dropout)</h4>
+                                                                    <ul>
+                                                                        <li>学習中にランダムにニューロンを無効化する正則化</li>
+                                                                        <li>過学習（検証損失が訓練損失より大きい）を抑える</li>
+                                                                        <li>データが少ない/過学習気味のとき有効</li>
+                                                                    </ul>
+                                                                </div>
+                                                            </span>
                                                         </label>
                                                     </div>
                                                     {useDropout && (
                                                         <div className="config-item">
-                                                            <label>ドロップアウト率</label>
+                                                            <ParamHint label="ドロップアウト率">
+                                                                <h4>ドロップアウト率 (Dropout Rate)</h4>
+                                                                <ul>
+                                                                    <li>無効化するニューロンの割合（<code>0.2</code> = 20%）</li>
+                                                                    <li>大きいほど正則化が強い。強すぎると学習不足</li>
+                                                                    <li>目安 0.1〜0.5</li>
+                                                                </ul>
+                                                            </ParamHint>
                                                             <input
                                                                 type="number"
                                                                 value={dropoutRate}
@@ -3741,7 +3895,24 @@
                                                         </div>
                                                     )}
                                                     <div className="config-item">
-                                                        <label title="入力センサー値の正規化方式を選択">正規化方式</label>
+                                                        <ParamHint label="正規化方式">
+                                                            <h4>正規化方式 (Normalization)</h4>
+                                                            <ul>
+                                                                <li>入力センサー値をモデルに入れる前の変換方法</li>
+                                                            </ul>
+                                                            <h4 style={{ marginTop: '8px' }}>Z-score標準化</h4>
+                                                            <ul>
+                                                                <li>式: <code>x' = (x - mean) / std</code></li>
+                                                                <li>各センサーの分布に自動適応し収束が速い</li>
+                                                                <li>学習データの統計量に依存（環境差に弱い）</li>
+                                                            </ul>
+                                                            <h4 style={{ marginTop: '8px' }}>クリップ＋固定スケール</h4>
+                                                            <ul>
+                                                                <li>式: <code>x' = min(x, clip_max) / clip_max</code></li>
+                                                                <li>データ非依存で環境が変わっても一貫（0=最近接,1=最大）</li>
+                                                                <li>センサー毎の分布差は吸収できない</li>
+                                                            </ul>
+                                                        </ParamHint>
                                                         <select
                                                             value={normalizationType}
                                                             onChange={e => setNormalizationType(e.target.value)}
@@ -3756,7 +3927,14 @@
                                                     </div>
                                                     {normalizationType === 'clip_scale' && (
                                                         <div className="config-item">
-                                                            <label>クリップ最大値 (mm)</label>
+                                                            <ParamHint label="クリップ最大値 (mm)">
+                                                                <h4>クリップ最大値</h4>
+                                                                <ul>
+                                                                    <li>クリップ＋固定スケール時の上限距離(mm)</li>
+                                                                    <li>これ以上の距離は同じ（1.0）として扱う</li>
+                                                                    <li>センサーの有効レンジに合わせて設定</li>
+                                                                </ul>
+                                                            </ParamHint>
                                                             <input
                                                                 type="number"
                                                                 value={clipMax}
@@ -3769,7 +3947,13 @@
                                                 </div>
                                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', marginTop: '0.5rem' }}>
                                                     <div className="config-item">
-                                                        <label>学習対象開始</label>
+                                                        <ParamHint label="学習対象開始">
+                                                            <h4>学習対象開始インデックス</h4>
+                                                            <ul>
+                                                                <li>学習に使うデータ範囲の開始位置</li>
+                                                                <li>特定区間だけ学習したい時に指定（空＝先頭から）</li>
+                                                            </ul>
+                                                        </ParamHint>
                                                         <input
                                                             type="number"
                                                             value={dataRangeStart}
@@ -3780,7 +3964,13 @@
                                                         />
                                                     </div>
                                                     <div className="config-item">
-                                                        <label>学習対象終了</label>
+                                                        <ParamHint label="学習対象終了">
+                                                            <h4>学習対象終了インデックス</h4>
+                                                            <ul>
+                                                                <li>学習に使うデータ範囲の終了位置</li>
+                                                                <li>特定区間だけ学習したい時に指定（空＝末尾まで）</li>
+                                                            </ul>
+                                                        </ParamHint>
                                                         <input
                                                             type="number"
                                                             value={dataRangeEnd}
@@ -3791,7 +3981,14 @@
                                                         />
                                                     </div>
                                                     <div className="config-item">
-                                                        <label>ダウンサンプリング (1/N)</label>
+                                                        <ParamHint label="ダウンサンプリング (1/N)">
+                                                            <h4>ダウンサンプリング (1/N)</h4>
+                                                            <ul>
+                                                                <li>N件ごとに1件だけ使用してデータを間引く</li>
+                                                                <li>学習を軽く・高速化（<code>1</code> = 全件使用）</li>
+                                                                <li>連続フレームの冗長性を減らせる</li>
+                                                            </ul>
+                                                        </ParamHint>
                                                         <input
                                                             type="number"
                                                             value={downsampleRate}
@@ -3910,6 +4107,18 @@
                                                                             出力: {model.selected_outputs.map(o => o.split('/').pop()).join(', ')}
                                                                         </div>
                                                                     )}
+                                                                    {model.mlflow_run_id && mlflowExperimentId && (
+                                                                        <a
+                                                                            href={`/mlflow/#/experiments/${mlflowExperimentId}/runs/${model.mlflow_run_id}`}
+                                                                            target="_blank"
+                                                                            onClick={(e) => e.stopPropagation()}
+                                                                            className="text-xs"
+                                                                            style={{ color: '#3b82f6', textDecoration: 'underline' }}
+                                                                            title="この学習のMLflow run（メトリクス・診断グラフ）を開く"
+                                                                        >
+                                                                            MLflowで詳細を見る ↗
+                                                                        </a>
+                                                                    )}
                                                                 </div>
                                                                 <button
                                                                     onClick={(e) => handleDeleteModel(model, e)}
@@ -3927,7 +4136,26 @@
 
                                             {/* Training Progress & Log */}
                                             <div className="training-panel">
-                                                <h3>学習ログ</h3>
+                                                <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    学習ログ
+                                                    <span className="smoothing-tooltip-wrapper">
+                                                        <span style={{ cursor: 'help', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '15px', height: '15px', borderRadius: '50%', background: '#3B82F6', color: 'white', fontSize: '10px', fontWeight: 'bold', lineHeight: 1 }}>?</span>
+                                                        <div className="smoothing-tooltip" style={{ width: '320px' }}>
+                                                            <h4>指標の見方</h4>
+                                                            <ul>
+                                                                <li><code>訓練損失</code>: 学習に使ったデータでの誤差(MSE)。最適化が最小化する値</li>
+                                                                <li><code>検証損失</code>: 学習に使っていないデータでの誤差(MSE)。訓練損失と近いほど過学習が少ない</li>
+                                                                <li><code>MAE angle / throttle</code>: 出力ごとの平均絶対誤差。実単位(-1〜1)で「平均してどれだけズレるか」</li>
+                                                            </ul>
+                                                            <h4 style={{ marginTop: '8px' }}>損失(MSE) と MAE の違い</h4>
+                                                            <ul>
+                                                                <li><code>MSE</code> = Mean Squared Error（平均二乗誤差）: 誤差を2乗 → 大きな外れを強く罰する（まとめて1値）</li>
+                                                                <li><code>MAE</code> = Mean Absolute Error（平均絶対誤差）: 誤差の絶対値 → 解釈しやすい平均ズレ（出力別）</li>
+                                                                <li>値が小さいほど高精度。MAE が大きい出力ほど苦手</li>
+                                                            </ul>
+                                                        </div>
+                                                    </span>
+                                                </h3>
                                                 {trainingProgress && (
                                                     <div className="mb-4">
                                                         <div className="flex justify-between text-sm mb-1">
@@ -3943,9 +4171,15 @@
                                                             />
                                                         </div>
                                                         {trainLosses.length > 0 && (
-                                                            <div className="flex gap-4 mt-2 text-sm">
+                                                            <div className="flex gap-4 mt-2 text-sm" style={{ flexWrap: 'wrap' }}>
                                                                 <span>訓練損失: {trainLosses[trainLosses.length - 1]?.toFixed(6)}</span>
                                                                 <span>検証損失: {valLosses[valLosses.length - 1]?.toFixed(6)}</span>
+                                                                {Object.keys(valMaeSeries).map(name => {
+                                                                    const s = valMaeSeries[name];
+                                                                    return (s && s.length > 0) ? (
+                                                                        <span key={name}>MAE {name}: {s[s.length - 1]?.toFixed(4)}</span>
+                                                                    ) : null;
+                                                                })}
                                                             </div>
                                                         )}
                                                     </div>
@@ -3960,7 +4194,7 @@
                                                         <span className="text-gray-400">ログがありません...</span>
                                                     ) : (
                                                         trainingLog.map((log, i) => (
-                                                            <div key={i}>{log}</div>
+                                                            <div key={i} dangerouslySetInnerHTML={{ __html: log }} />
                                                         ))
                                                     )}
                                                 </div>
@@ -4026,6 +4260,24 @@
                                             </div>
                                             <div className="ag-theme-alpine" ref={dataGridRef} style={{ flex: 1, width: '100%', minHeight: 0 }}></div>
                                         </React.Fragment>
+                                    )}
+                                </div>
+
+                                {/* MLflow Tab - 学習履歴/比較/診断グラフを埋め込み表示 */}
+                                <div style={{ display: activeTab === 'mlflow' ? 'flex' : 'none', flex: 1, minHeight: 0, overflow: 'hidden', flexDirection: 'column' }}>
+                                    <div style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                        <span>学習履歴・比較・診断グラフ (MLflow)</span>
+                                        <a href="/mlflow/" target="_blank" style={{ color: '#3b82f6', textDecoration: 'underline' }}>別タブで開く ↗</a>
+                                        <button onClick={() => { setMlflowReady(false); openMlflowTab(); }} style={{ fontSize: '0.7rem', padding: '1px 8px', cursor: 'pointer' }}>再読込</button>
+                                    </div>
+                                    {mlflowReady ? (
+                                        <iframe id="mlflow-iframe" src="/mlflow/" title="MLflow UI" style={{ flex: 1, width: '100%', border: 'none', minHeight: 0 }} />
+                                    ) : (
+                                        <div className="flex flex-col items-center justify-center w-full text-gray-400 py-8" style={{ gap: '0.5rem' }}>
+                                            <div className="animate-spin" style={{ width: '24px', height: '24px', border: '3px solid #ccc', borderTopColor: '#3b82f6', borderRadius: '50%' }}></div>
+                                            <div>{mlflowWaitMsg}</div>
+                                            <div style={{ fontSize: '0.7rem' }}>初回はライブラリ読込のため20〜30秒かかります</div>
+                                        </div>
                                     )}
                                 </div>
                             </div>

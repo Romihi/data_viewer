@@ -1,10 +1,13 @@
 from flask import Flask, render_template, jsonify, request, send_file, redirect, Response
+import urllib.request
+import urllib.error
 from flask_cors import CORS
 import os
 import json
 import glob
 import logging
 import base64
+import time
 import platform
 import numpy as np
 import sys
@@ -17,8 +20,9 @@ import signal
 import socket
 from pathlib import Path
 from data_loader import DonkeycarDataLoader
-from training_manager import TrainingManager
-from neural_network import TrainingConfig
+# NOTE: training_manager / neural_network は torch・mlflow を連れてくるため
+# モジュール先頭では import しない（起動時間が ~7秒 増える）。
+# 学習・モデル系の API が初めて呼ばれたとき、または起動後のバックグラウンド暖機で読み込む。
 
 app = Flask(__name__)
 CORS(app)
@@ -33,8 +37,22 @@ logger = logging.getLogger(__name__)
 # Initialize data loader
 data_loader = DonkeycarDataLoader()
 
-# Initialize training manager
-training_manager = TrainingManager()
+# --- TrainingManager の遅延初期化 ---------------------------------------
+# torch+mlflow のロード(約7秒)を起動クリティカルパスから外すため、
+# 最初に必要になった時点で生成する。スレッド安全のためロックで保護。
+_training_manager = None
+_training_manager_lock = threading.Lock()
+
+
+def get_training_manager():
+    """Lazily create the TrainingManager (imports torch+mlflow on first call)."""
+    global _training_manager
+    if _training_manager is None:
+        with _training_manager_lock:
+            if _training_manager is None:
+                from training_manager import TrainingManager  # heavy: torch+mlflow
+                _training_manager = TrainingManager()
+    return _training_manager
 
 # Track child processes for cleanup
 _child_processes = []
@@ -65,6 +83,16 @@ def _signal_handler(signum, frame):
 
 signal.signal(signal.SIGTERM, _signal_handler)
 signal.signal(signal.SIGINT, _signal_handler)
+
+
+@app.after_request
+def _cache_vendor_assets(response):
+    """同梱ライブラリ(static/vendor)はバージョン固定のため長期immutableキャッシュを付与。
+    初回はローカルから取得、2回目以降はブラウザキャッシュで即時ロード（再検証もしない）。"""
+    if request.path.startswith('/static/vendor/'):
+        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+    return response
+
 
 @app.route('/')
 def index():
@@ -423,9 +451,10 @@ def clear_delete_indexes():
 def train_model():
     """Start new model training"""
     try:
+        from neural_network import TrainingConfig  # heavy: torch（学習時のみ読み込む）
         data = request.json
         config = TrainingConfig.from_dict(data)
-        result = training_manager.train_model(config, data_loader.records, data_path=data_loader.data_path, continue_training=False)
+        result = get_training_manager().train_model(config, data_loader.records, data_path=data_loader.data_path, continue_training=False)
 
         if 'error' in result:
             return jsonify(result), 400
@@ -440,9 +469,10 @@ def train_model():
 def continue_training():
     """Continue training from existing model"""
     try:
+        from neural_network import TrainingConfig  # heavy: torch（学習時のみ読み込む）
         data = request.json
         config = TrainingConfig.from_dict(data)
-        result = training_manager.train_model(config, data_loader.records, data_path=data_loader.data_path, continue_training=True)
+        result = get_training_manager().train_model(config, data_loader.records, data_path=data_loader.data_path, continue_training=True)
 
         if 'error' in result:
             return jsonify(result), 400
@@ -457,7 +487,7 @@ def continue_training():
 def stop_training():
     """Stop current training"""
     try:
-        result = training_manager.stop_training()
+        result = get_training_manager().stop_training()
         return jsonify(result)
     except Exception as e:
         logger.exception('API error')
@@ -468,7 +498,7 @@ def stop_training():
 def get_training_progress():
     """Get current training progress"""
     try:
-        progress = training_manager.get_progress()
+        progress = get_training_manager().get_progress()
         return jsonify(progress)
     except Exception as e:
         logger.exception('API error')
@@ -483,9 +513,12 @@ def get_training_progress():
 def list_models():
     """List all saved models"""
     try:
-        models = training_manager.list_models()
-        models_dir = str(Path(training_manager.models_dir).resolve())
-        return jsonify({'models': models, 'models_dir': models_dir})
+        tm = get_training_manager()
+        models = tm.list_models()
+        models_dir = str(Path(tm.models_dir).resolve())
+        # experiment_id は MLflow UI へのディープリンク生成にフロントで使う
+        return jsonify({'models': models, 'models_dir': models_dir,
+                        'mlflow_experiment_id': getattr(tm, 'experiment_id', None)})
     except Exception as e:
         logger.exception('API error')
         return jsonify({'error': str(e)}), 500
@@ -520,7 +553,7 @@ def load_model():
         if not model_path:
             return jsonify({'error': 'model_path is required'}), 400
 
-        result = training_manager.load_model(model_path)
+        result = get_training_manager().load_model(model_path)
 
         if 'error' in result:
             return jsonify(result), 400
@@ -541,7 +574,7 @@ def delete_model():
         if not model_path:
             return jsonify({'error': 'model_path is required'}), 400
 
-        result = training_manager.delete_model(model_path)
+        result = get_training_manager().delete_model(model_path)
 
         if 'error' in result:
             return jsonify(result), 400
@@ -559,7 +592,7 @@ def predict():
         data = request.json
         deleted_indexes = data.get('deleted_indexes', [])
 
-        result = training_manager.predict(data_loader.records, deleted_indexes, data_path=data_loader.data_path)
+        result = get_training_manager().predict(data_loader.records, deleted_indexes, data_path=data_loader.data_path)
 
         if 'error' in result:
             return jsonify(result), 400
@@ -574,7 +607,7 @@ def predict():
 def get_current_model():
     """Get current loaded model info"""
     try:
-        model_info = training_manager.get_current_model_info()
+        model_info = get_training_manager().get_current_model_info()
         if model_info:
             return jsonify({'model_info': model_info})
         else:
@@ -588,34 +621,109 @@ def get_current_model():
 # MLflow API Endpoints
 # =====================================================
 
+def _is_mlflow_running():
+    """Return True if something is already listening on the MLflow UI port (8011)."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(1)
+    result = sock.connect_ex(('127.0.0.1', 8011))
+    sock.close()
+    return result == 0
+
+
+def _launch_mlflow_ui():
+    """Launch the MLflow UI subprocess if not already running. Returns True if started, False if already up."""
+    if _is_mlflow_running():
+        return False
+
+    # Start MLflow UI on port 8011 (to avoid conflict with data_viewer on 8010)
+    # バックエンドは SQLite なので sqlite:/// URI を渡す（file:// は MLflow 3.x で禁止）
+    db_path = Path(get_training_manager().mlruns_dir).resolve() / 'mlflow.db'
+    backend_uri = f'sqlite:///{db_path}'
+    # --static-prefix /mlflow: MLflow の全パス（静的アセット・API）に /mlflow を付与する。
+    # これにより Flask 側で /mlflow/* を透過プロキシでき、HTML 書き換えが不要になる。
+    # 127.0.0.1 のみで待受け（外部公開は Flask:8010 の /mlflow/ プロキシ経由のみ）。
+    # RPi では uvicorn の起動が遅いためワーカー数を 1 に削減。
+    proc = subprocess.Popen(
+        [sys.executable, '-m', 'mlflow', 'ui',
+         '--host', '127.0.0.1', '--port', '8011',
+         '--backend-store-uri', backend_uri,
+         '--static-prefix', '/mlflow',
+         '-w', '1'],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+    _child_processes.append(proc)
+    logger.info(f'MLflow UI process started (pid={proc.pid}), backend={backend_uri}')
+    return True
+
+
 @app.route('/api/mlflow/start', methods=['POST'])
 def start_mlflow_ui():
     """Start MLflow UI server"""
     try:
-        # Check if MLflow UI is already running
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        result = sock.connect_ex(('127.0.0.1', 8011))
-        sock.close()
-
-        if result == 0:
-            return jsonify({'message': 'MLflow UI already running', 'port': 8011})
-
-        # Start MLflow UI on port 8011 (to avoid conflict with data_viewer on 8010)
-        mlruns_path = Path(training_manager.mlruns_dir).resolve().as_uri()
-        proc = subprocess.Popen(
-            [sys.executable, '-m', 'mlflow', 'ui',
-             '--host', '0.0.0.0', '--port', '8011',
-             '--backend-store-uri', mlruns_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        _child_processes.append(proc)
-        logger.info(f'MLflow UI process started (pid={proc.pid}), mlruns={mlruns_path}')
-
-        return jsonify({'message': 'MLflow UI started', 'port': 8011})
+        if not _launch_mlflow_ui():
+            return jsonify({'message': 'MLflow UI already running', 'port': 8011, 'ready': True})
+        return jsonify({'message': 'MLflow UI started', 'port': 8011, 'ready': False})
     except Exception as e:
         logger.exception('API error')
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/mlflow/status', methods=['GET'])
+def mlflow_status():
+    """Check if MLflow UI is ready (TCP connect from server side to avoid browser CORS/popup issues)"""
+    return jsonify({'ready': _is_mlflow_running(), 'port': 8011})
+
+
+@app.route('/mlflow', defaults={'path': ''}, methods=['GET', 'POST'])
+@app.route('/mlflow/', defaults={'path': ''}, methods=['GET', 'POST'])
+@app.route('/mlflow/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])
+def mlflow_proxy(path):
+    """Transparent reverse-proxy to the MLflow UI on 8011 (started with --static-prefix /mlflow).
+
+    MLflow が全パスに /mlflow を付けるため、書き換えなしでそのまま転送できる。
+    実行ポート 8011 を別途開放せずに Flask:8010 経由で MLflow にアクセスできる。
+    """
+    target = f'http://127.0.0.1:8011/mlflow/{path}'
+    if request.query_string:
+        target += '?' + request.query_string.decode()
+    try:
+        # Host/Content-Length は urllib に再計算させるため除外
+        fwd_headers = {k: v for k, v in request.headers
+                       if k.lower() not in ('host', 'content-length')}
+        req = urllib.request.Request(
+            target,
+            data=request.get_data() or None,
+            headers=fwd_headers,
+            method=request.method,
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            excluded = {'content-encoding', 'transfer-encoding', 'connection', 'content-length'}
+            headers = [(k, v) for k, v in resp.headers.items()
+                       if k.lower() not in excluded]
+            return Response(resp.read(), status=resp.status, headers=headers)
+    except urllib.error.HTTPError as e:
+        # MLflow からのエラー応答（JSON等）をそのまま返す
+        return Response(e.read(), status=e.code,
+                        content_type=e.headers.get('Content-Type', 'text/plain'))
+    except Exception:
+        # MLflow がまだ起動中（Connection refused 等）→ 起動を促し自動リロードする待機ページを返す。
+        # 生のエラーJSONを見せず、20〜30秒で自動的に表示される。
+        # 起動トリガーは別スレッドへ（_launch_mlflow_ui は torch+mlflow の重いimportを伴い
+        # 同期実行するとレスポンスを数秒ブロックするため）。冪等なので多重呼び出しでも安全。
+        threading.Thread(target=_launch_mlflow_ui, daemon=True).start()
+        wait_html = """<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<title>MLflow 起動中</title><meta http-equiv="refresh" content="3">
+<style>body{font-family:sans-serif;display:flex;flex-direction:column;align-items:center;
+justify-content:center;height:100vh;margin:0;color:#555;background:#f5f3ed}
+.spin{width:28px;height:28px;border:3px solid #ccc;border-top-color:#3b82f6;
+border-radius:50%;animation:s 1s linear infinite;margin-bottom:1rem}
+@keyframes s{to{transform:rotate(360deg)}}</style></head>
+<body><div class="spin"></div><div>MLflow を起動しています...</div>
+<div style="font-size:.8rem;margin-top:.5rem">初回はライブラリ読込のため20〜30秒かかります（自動で再読込します）</div>
+</body></html>"""
+        return Response(wait_html, status=503, content_type='text/html; charset=utf-8',
+                        headers={'Retry-After': '3'})
 
 
 @app.route('/api/platform', methods=['GET'])
@@ -710,6 +818,7 @@ def get_available_sensors():
 def get_code():
     """Get source code sections for display"""
     try:
+        from training_manager import TrainingManager  # 遅延import（ソース表示用）
         sections = []
 
         # Section 1: Model definition (neural_network.py full file)
@@ -794,6 +903,22 @@ if __name__ == '__main__':
     if local_ip:
         logger.info(f'  Network: http://{local_ip}:{PORT}')
 
+    # 起動後にバックグラウンドで「学習スタックの暖機」と「MLflow UI 先行起動」を行う。
+    #  - torch+mlflow の import(約7秒)を最初のページ表示クリットカルパスから外しつつ、
+    #    裏で先読みしておくことで初回学習も待たされない。
+    #  - 最初の数秒はページ初期描画を優先するため、少し遅らせてから開始する。
+    def _warm_background():
+        try:
+            time.sleep(3)  # 初期ページ描画にCPUを譲ってから暖機を始める
+            get_training_manager()  # torch+mlflow+TM を先読み（裏で）
+            logger.info('Training stack warmed (torch+mlflow loaded in background)')
+            if _launch_mlflow_ui():
+                logger.info('MLflow UI pre-launching in background (ready in ~20s)')
+        except Exception as e:
+            logger.warning(f'Background warm-up failed (features still work on demand): {e}')
+
+    threading.Thread(target=_warm_background, daemon=True).start()
+
     # Open browser automatically after a short delay
     def open_browser():
         webbrowser.open(f'http://localhost:{PORT}')
@@ -814,4 +939,5 @@ if __name__ == '__main__':
     from werkzeug.serving import WSGIRequestHandler
     WSGIRequestHandler.protocol_version = "HTTP/1.1"
 
-    app.run(host='0.0.0.0', port=PORT, debug=True, use_reloader=False)
+    # debug=False: RPi では debug の自動リロード/オーバーヘッドを避けて起動を軽くする
+    app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)

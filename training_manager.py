@@ -63,6 +63,7 @@ class TrainingManager:
             "start_time": None,         # 学習開始時刻
             "train_losses": [],         # 訓練損失の履歴
             "val_losses": [],           # 検証損失の履歴
+            "val_mae_series": {},       # 出力別の検証MAE履歴 {"angle":[...], "throttle":[...]}
             "should_stop": False        # 停止リクエストフラグ
         }
 
@@ -71,8 +72,13 @@ class TrainingManager:
         self.current_model_info: Optional[Dict] = None       # メタ情報（構造・センサー等）
 
         # --- MLflow の初期設定 ---
-        mlflow.set_tracking_uri(str(self.mlruns_dir))
-        mlflow.set_experiment("data_viewer_training")
+        # 新しい MLflow ではファイルストア（'./mlruns'）が廃止予定のため、
+        # SQLite データベースをトラッキングバックエンドとして使用する。
+        db_path = self.mlruns_dir / "mlflow.db"
+        mlflow.set_tracking_uri(f"sqlite:///{db_path}")
+        # set_experiment は Experiment オブジェクトを返す。UI ディープリンク用に id を保持。
+        experiment = mlflow.set_experiment("data_viewer_training")
+        self.experiment_id = experiment.experiment_id
 
         # 学習はバックグラウンドスレッドで実行する（UIをブロックしないため）
         self._training_thread: Optional[threading.Thread] = None
@@ -226,14 +232,16 @@ class TrainingManager:
                 run_name = f"new_model_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
             # MLflow に学習パラメータと結果を記録する
-            with mlflow.start_run(run_name=run_name):
+            # `as run` でコンテキストマネージャから直接 run_id を取得（スレッド安全）
+            with mlflow.start_run(run_name=run_name) as run:
                 # ---- ハイパーパラメータを MLflow に記録 ----
-                mlflow.log_param("hidden_layers", config.hidden_layers)
+                # MLflow 3.x ではリスト型は str() に変換しないとエラーになる場合がある
+                mlflow.log_param("hidden_layers", str(config.hidden_layers))
                 mlflow.log_param("epochs", config.epochs)
                 mlflow.log_param("batch_size", config.batch_size)
                 mlflow.log_param("learning_rate", config.learning_rate)
-                mlflow.log_param("selected_sensors", config.selected_sensors)
-                mlflow.log_param("selected_outputs", config.selected_outputs)
+                mlflow.log_param("selected_sensors", str(config.selected_sensors))
+                mlflow.log_param("selected_outputs", str(config.selected_outputs))
                 # input_size は X 構築後に記録（センサー種別で変わるため）
                 mlflow.log_param("output_size", len(config.selected_outputs))
                 mlflow.log_param("use_dropout", config.use_dropout)
@@ -398,6 +406,11 @@ class TrainingManager:
                 train_losses = prev_train_losses.copy()
                 val_losses = prev_val_losses.copy()
 
+                # 出力名（user/angle → angle）。エポック毎の出力別MAE記録に使う
+                output_names = [o.split('/')[-1] for o in config.selected_outputs]
+                # 出力別MAEのライブ履歴を初期化（継続学習でもこの run 分を新規に表示）
+                self.progress["val_mae_series"] = {name: [] for name in output_names}
+
                 print(f"[Training] Starting training loop for {config.epochs} epochs")
                 for epoch in range(config.epochs):
                     # UIから停止リクエストがあれば中断
@@ -439,6 +452,8 @@ class TrainingManager:
                     # ---- 検証フェーズ ----
                     model.eval()   # Dropout を無効化（評価モード）
                     val_loss = 0.0
+                    val_abs_err = np.zeros(output_size)  # 出力別の絶対誤差の合計
+                    val_count = 0                        # 検証サンプル数
                     with torch.no_grad():  # 勾配計算を無効化（メモリ節約・高速化）
                         for batch_X, batch_y in val_loader:
                             if self.progress["should_stop"]:
@@ -446,6 +461,9 @@ class TrainingManager:
                             outputs = model(batch_X)
                             loss = criterion(outputs, batch_y)
                             val_loss += loss.item()
+                            # 出力別の絶対誤差をバッチ方向に合計
+                            val_abs_err += torch.abs(outputs - batch_y).sum(dim=0).cpu().numpy()
+                            val_count += batch_y.shape[0]
 
                     if self.progress["should_stop"]:
                         break
@@ -466,10 +484,26 @@ class TrainingManager:
                         print(f"[Training] Epoch {prev_epochs + epoch + 1}/{prev_epochs + config.epochs} - Train Loss: {avg_train_loss:.6f}, Val Loss: {avg_val_loss:.6f}")
 
                     # 損失を MLflow に記録（学習曲線の可視化用）
-                    mlflow.log_metric("train_loss", avg_train_loss, step=prev_epochs + epoch)
-                    mlflow.log_metric("val_loss", avg_val_loss, step=prev_epochs + epoch)
+                    step = prev_epochs + epoch
+                    mlflow.log_metric("train_loss", avg_train_loss, step=step)
+                    mlflow.log_metric("val_loss", avg_val_loss, step=step)
+
+                    # 出力別の検証MAE をエポック毎に記録（angle/throttle の精度推移を個別に追える）
+                    if val_count > 0:
+                        val_mae_per_output = val_abs_err / val_count
+                        for name, m in zip(output_names, val_mae_per_output):
+                            mlflow.log_metric(f"val_mae_{name}", float(m), step=step)
+                            # ライブ学習曲線表示用の履歴に追記（UIがポーリングで読む）
+                            self.progress["val_mae_series"].setdefault(name, []).append(float(m))
+                        mlflow.log_metric("val_mae_mean", float(val_mae_per_output.mean()), step=step)
 
                 print(f"[Training] Training loop completed. Total epochs: {len(train_losses)}")
+
+                # 学習後の診断情報を MLflow に記録（出力別MAE・予測vs実測図・損失曲線・分布・タグ）
+                self._log_diagnostics_to_mlflow(
+                    model, val_loader, config,
+                    train_losses, val_losses, y, data_path
+                )
 
                 # ============================================================
                 # ステップ5: 学習済みモデルの保存
@@ -477,6 +511,9 @@ class TrainingManager:
 
                 # ファイル名を生成（例: nn_20240101_120000_5_64_32_2.pth）
                 model_name = self._generate_model_name(input_size, config.hidden_layers, output_size)
+
+                # run_id はコンテキストマネージャから直接取得（active_run() より確実）
+                run_id = run.info.run_id
 
                 # メモリ上のモデル情報を更新
                 self.current_model = model
@@ -499,20 +536,9 @@ class TrainingManager:
                     },
                     "train_losses": train_losses,
                     "val_losses": val_losses,
-                    "mlflow_run_id": mlflow.active_run().info.run_id
+                    "mlflow_run_id": run_id
                 }
 
-                # MLflow にモデルを保存
-                input_example = X_normalized[:1]
-                mlflow.pytorch.log_model(
-                    model,
-                    artifact_path="model",
-                    input_example=input_example,
-                    registered_model_name=model_name.replace('.pth', '')
-                )
-
-                # ローカルに .pth ファイルとして保存
-                # state_dict = モデルの全パラメータ（重みとバイアス）の辞書
                 model_path = self.models_dir / model_name
                 model_data = {
                     'model_state_dict': model.state_dict(),
@@ -529,7 +555,7 @@ class TrainingManager:
                         'X_std': X_std.tolist() if X_std is not None else None,
                         'clip_max': config.clip_max if config.normalization_type == 'clip_scale' else None
                     },
-                    'mlflow_run_id': mlflow.active_run().info.run_id,
+                    'mlflow_run_id': run_id,
                     'train_losses': train_losses,
                     'val_losses': val_losses,
                     'is_continued': continue_training,
@@ -545,15 +571,30 @@ class TrainingManager:
                     }
 
                 torch.save(model_data, model_path)
+                print(f"[Training] Model saved to {model_path}")
 
-                # 正規化パラメータも MLflow に記録
-                normalization_artifact = {
-                    "type": config.normalization_type,
-                    "X_mean": X_mean.tolist() if X_mean is not None else None,
-                    "X_std": X_std.tolist() if X_std is not None else None,
-                    "clip_max": config.clip_max if config.normalization_type == 'clip_scale' else None
-                }
-                mlflow.log_dict(normalization_artifact, "normalization_params.json")
+                # MLflow にモデルとアーティファクトを記録（失敗しても .pth は保存済みなので続行）
+                try:
+                    input_example = X_normalized[:1]
+                    # MLflow 3 の既定 'pt2' 形式は torch>=2.4 を要求するが、本機は
+                    # ハード制約で torch<=2.3.1 のため 'pickle' を明示。
+                    # また MLflow 3 で artifact_path は name に改称された。
+                    mlflow.pytorch.log_model(
+                        model,
+                        name="model",
+                        input_example=input_example,
+                        registered_model_name=model_name.replace('.pth', ''),
+                        serialization_format="pickle"
+                    )
+                    normalization_artifact = {
+                        "type": config.normalization_type,
+                        "X_mean": X_mean.tolist() if X_mean is not None else None,
+                        "X_std": X_std.tolist() if X_std is not None else None,
+                        "clip_max": config.clip_max if config.normalization_type == 'clip_scale' else None
+                    }
+                    mlflow.log_dict(normalization_artifact, "normalization_params.json")
+                except Exception as mlflow_err:
+                    print(f"[Training] MLflow artifact logging failed (model .pth was saved): {mlflow_err}")
 
         except Exception as e:
             import traceback
@@ -562,6 +603,103 @@ class TrainingManager:
         finally:
             print("[Training] Training finished (finally block)")
             self.progress["is_training"] = False
+
+    def _log_diagnostics_to_mlflow(self, model, val_loader, config,
+                                   train_losses, val_losses, y_all, data_path):
+        """学習後の診断情報を MLflow に記録する（アクティブな run 内で呼ぶこと）。
+
+        記録内容:
+          B1. 出力別の検証MAE（操舵/スロットルを分離 → どの出力が苦手か判る）
+          B2. 予測 vs 実測 散布図（運転モデルの最重要診断図）
+          B3. 損失曲線の画像
+          B4. 学習データの出力値ヒストグラム（左右バイアス検出）
+          B5. run タグ（データフォルダ・サンプル数・センサー等で検索可能に）
+        失敗しても学習本体に影響させない（診断は付加価値のため）。
+        """
+        try:
+            import matplotlib
+            matplotlib.use("Agg")  # ヘッドレス/別スレッドから使うため非対話バックエンド
+            import matplotlib.pyplot as plt
+
+            output_names = [o.split('/')[-1] for o in config.selected_outputs]
+            n = len(output_names)
+
+            # --- 検証データで予測を収集 ---
+            model.eval()
+            preds, actuals = [], []
+            with torch.no_grad():
+                for xb, yb in val_loader:
+                    preds.append(model(xb).cpu().numpy())
+                    actuals.append(yb.cpu().numpy())
+            if not preds:
+                print("[Training] Diagnostics skipped (no validation samples)")
+                return
+            preds = np.vstack(preds)
+            actuals = np.vstack(actuals)
+
+            # --- 出力別MAE（散布図タイトル用に算出）。
+            #     val_mae_* メトリクスは学習ループ内でエポック毎に記録済みのためここでは記録しない。 ---
+            mae = np.mean(np.abs(preds - actuals), axis=0)
+
+            # --- B2: 予測 vs 実測 散布図 ---
+            fig, axes = plt.subplots(1, n, figsize=(5 * n, 4.5), squeeze=False)
+            for j, name in enumerate(output_names):
+                ax = axes[0][j]
+                ax.scatter(actuals[:, j], preds[:, j], s=6, alpha=0.4)
+                lo = float(min(actuals[:, j].min(), preds[:, j].min()))
+                hi = float(max(actuals[:, j].max(), preds[:, j].max()))
+                ax.plot([lo, hi], [lo, hi], 'r--', lw=1)  # 理想線 y=x
+                ax.set_xlabel(f"actual {name}")
+                ax.set_ylabel(f"predicted {name}")
+                ax.set_title(f"{name}  (MAE={mae[j]:.4f})")
+                ax.grid(alpha=0.3)
+            fig.tight_layout()
+            mlflow.log_figure(fig, "diagnostics/pred_vs_actual.png")
+            plt.close(fig)
+
+            # --- B3: 損失曲線 ---
+            if train_losses:
+                fig, ax = plt.subplots(figsize=(7, 4.5))
+                epochs = range(1, len(train_losses) + 1)
+                ax.plot(epochs, train_losses, label="train")
+                ax.plot(epochs, val_losses, label="val")
+                ax.set_xlabel("epoch")
+                ax.set_ylabel("MSE loss")
+                ax.set_title("Learning curve")
+                ax.legend()
+                ax.grid(alpha=0.3)
+                fig.tight_layout()
+                mlflow.log_figure(fig, "diagnostics/loss_curve.png")
+                plt.close(fig)
+
+            # --- B4: 学習データの出力値ヒストグラム（左右バイアス検出） ---
+            y_arr = np.asarray(y_all)
+            fig, axes = plt.subplots(1, n, figsize=(5 * n, 4), squeeze=False)
+            for j, name in enumerate(output_names):
+                ax = axes[0][j]
+                ax.hist(y_arr[:, j], bins=40, color="#4c72b0", alpha=0.85)
+                ax.set_xlabel(name)
+                ax.set_ylabel("count")
+                ax.set_title(f"{name} distribution")
+                ax.grid(alpha=0.3)
+            fig.tight_layout()
+            mlflow.log_figure(fig, "diagnostics/data_distribution.png")
+            plt.close(fig)
+
+            # --- B5: 検索/絞り込み用タグ ---
+            tags = {
+                "samples_total": str(len(y_arr)),
+                "n_outputs": str(n),
+                "outputs": ",".join(output_names),
+                "sensors": ",".join(config.selected_sensors),
+            }
+            if data_path:
+                tags["data_folder"] = os.path.basename(os.path.normpath(data_path))
+            mlflow.set_tags(tags)
+
+            print(f"[Training] Diagnostics logged to MLflow (val_mae={dict(zip(output_names, [round(float(x),4) for x in mae]))})")
+        except Exception as e:
+            print(f"[Training] Diagnostics logging failed (non-fatal): {e}")
 
     def stop_training(self) -> Dict[str, Any]:
         """Request training to stop."""
@@ -593,7 +731,8 @@ class TrainingManager:
                     "dropout_rate": model_data.get("dropout_rate", 0.2),
                     "total_epochs": model_data.get("total_epochs", len(model_data.get("train_losses", []))),
                     "is_continued": model_data.get("is_continued", False),
-                    "parent_model": model_data.get("parent_model", None)
+                    "parent_model": model_data.get("parent_model", None),
+                    "mlflow_run_id": model_data.get("mlflow_run_id", None)  # UI ディープリンク用
                 })
             except Exception as e:
                 print(f"Error loading model {model_file}: {e}")
